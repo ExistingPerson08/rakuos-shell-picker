@@ -1,0 +1,116 @@
+window.picker {
+  background-color: #14131a;
+}
+
+.picker-root {
+  background-color: #14131a;
+}
+
+.tabbar {
+  margin-top: 16px;
+  margin-bottom: 4px;
+}
+
+.tab {
+  min-width: 130px;
+  min-height: 28px;
+  border: 1px solid alpha(white, 0.18);
+  border-radius: 8px;
+  background-color: alpha(white, 0.04);
+  color: #e6e1ea;
+  font-weight: 700;
+}
+
+.tab:hover {
+  background-color: alpha(white, 0.1);
+}
+
+.tab.active {
+  background-color: #4a4458;
+  color: #ffffff;
+  border-color: alpha(white, 0.35);
+}
+
+.section-title {
+  color: #8b8494;
+  font-size: 0.78em;
+  font-weight: 700;
+  margin-top: 10px;
+  margin-bottom: 2px;
+}
+
+.card {
+  border: 1px solid alpha(white, 0.16);
+  border-radius: 14px;
+  padding: 10px;
+  background-color: alpha(white, 0.03);
+  min-height: 132px;
+}
+
+.card-wide {
+  min-height: 180px;
+}
+
+.card:hover {
+  background-color: alpha(white, 0.09);
+  border-color: alpha(white, 0.32);
+}
+
+.card.selected {
+  border-color: #89b4fa;
+  background-color: alpha(#89b4fa, 0.16);
+}
+
+.card.unavailable {
+  opacity: 0.5;
+}
+
+.logo-frame {
+  border: 1px solid alpha(white, 0.12);
+  border-radius: 10px;
+  background-color: alpha(black, 0.28);
+}
+
+.logo-fallback {
+  color: #cfc9d6;
+  font-size: 2.6em;
+  font-weight: 800;
+}
+
+.card-label {
+  color: #cfc9d6;
+  font-size: 0.95em;
+  margin-top: 10px;
+}
+
+.card-label.selected {
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.card-sub {
+  color: #8b8494;
+  font-size: 0.76em;
+  margin-top: 1px;
+}
+
+.log-frame {
+  border: 1px solid alpha(white, 0.16);
+  border-radius: 12px;
+  background-color: alpha(black, 0.35);
+  margin-top: 14px;
+  margin-bottom: 18px;
+  margin-left: 24px;
+  margin-right: 24px;
+}
+
+.log-view {
+  background-color: transparent;
+  color: #a6e3a1;
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
+.dim-fallback {
+  color: #6b6577;
+}

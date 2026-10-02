@@ -1,0 +1,11 @@
+# Target build
+/target
+
+# Editor
+*.swp
+.idea/
+.vscode/
+
+# Backup skrip yang sempat dipakai saat coding
+*.bak
+*.bak-*
