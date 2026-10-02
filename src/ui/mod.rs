@@ -132,8 +132,8 @@ impl Selection {
         if let Some(current) = self.detection.current {
             if current != compositor.id() {
                 return Some(format!(
-                    "{} is not the running compositor — {} is. Switching compositor \
-                     means switching image: use RakuOS software management.",
+                    "{} is not the running compositor — {} is. Switching image \
+                     is done in \"RakuOS system management\".",
                     compositor.label(),
                     current
                 ));

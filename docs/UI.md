@@ -116,19 +116,33 @@ memindah shell yang sedang berjalan, bukan memasang paket:
 `AdwAlertDialog`. Kelima jalur klik, ditentukan oleh fungsi murni
 `ui::dialog::decide()` yang sudah ada testnya sendiri:
 
-| Keadaan | Judul | Tombol |
-|---|---|---|
-| Compositor berbeda | `Blocked` | `Close` |
-| Compositor tidak terdeteksi | `Blocked` | `Close` |
-| Shell sudah hidup | `Already running` | `Close` |
-| Shell belum terpasang | `Not installed` | `Close` |
-| Shell terpasang dan idle | `Confirm switch` | `Cancel`, `Switch` |
+| Keadaan | Judul | Body | Baris penekanan |
+|---|---|---|---|
+| Compositor berbeda | `Blocked` | `niri is not the running compositor — hyprland is.` | Switch image in **"RakuOS system management"**. |
+| Compositor tidak terdeteksi | `Blocked` | alasannya | Nothing was changed. |
+| Shell sudah hidup | `Already running` | `Noctalia is already running.` | Nothing to switch to. |
+| Shell belum terpasang | `Not installed` | `Caelestia Shell is not installed.` | Packages come from the **RakuOS** image. |
+| Shell terpasang dan idle | `Switch to X?` | `Noctalia is running now.` | Configuration is backed up and never deleted. |
 
+- **Pendek, bukan paragraf.** Awalnya tiap popup dua paragraf; yang penting
+  sudah ada di banner kuning di atas dan di log, jadi mengulanginya di sini
+  cuma menambah teks kedaluwarsa. Yang tampil satu kalimat + satu baris
+  penekanan.
+- `AdwAlertDialog` menampilkan body sebagai teks polos, jadi `<b>` di body akan
+  tampil sebagai karakter biasa. Karena itu baris yang ditebalkan ditaruh di
+  `extra` sebagai `gtk::Label` dengan `use_markup(true)`.
+- Nama produk selalu ditulis dalam tanda kutip: **"RakuOS system management"**,
+  supaya jelas itu nama fitur, bukan sekadar kata di dalam kalimat.
+- Response ditambahkan **sebelum** `present()`. Versi lama menampilkan dialog
+  lebih dulu, sehingga tombolnya belum ada saat dialog muncul.
+- Dialog penolakan hanya punya `Close`; tidak ada yes/no karena memang tidak
+  ada yang bisa disetujui.
+- Dialog switch punya `Cancel` sebagai default response, jadi Enter melakukan
+  hal yang aman.
 - Hanya `Confirm switch` + `Switch` yang boleh lanjut ke backend. Empat jalur
-  lain berhenti di sini.
+  lain berhenti di sini, dan itu diuji langsung
+  (`every_refusal_is_distinct_from_a_confirmation`).
 - Eksekusi switch adalah urusan `ShellBackend::preflight()`, bukan dialog.
-- Hanya satu dari lima jalur yang boleh menghasilkan konfirmasi; itu diuji
-  langsung (`every_refusal_is_distinct_from_a_confirmation`).
 
 ## Halaman compositor yang diblokir
 

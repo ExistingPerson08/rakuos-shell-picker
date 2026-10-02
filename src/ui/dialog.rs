@@ -92,81 +92,99 @@ fn running_shell(_detection: &Detection) -> Option<&'static Shell> {
 // GTK rendering
 // ---------------------------------------------------------------------------
 
-fn dialog(parent: &ApplicationWindow, heading: &str, body: &str) -> AlertDialog {
+fn markup_label(text: &str) -> gtk4::Label {
+    let label = gtk4::Label::new(Some(text));
+    label.set_use_markup(true);
+    label.set_justify(gtk4::Justification::Center);
+    label.set_wrap(true);
+    label.set_max_width_chars(38);
+    label
+}
+
+/// A short alert with an optional emphasised line underneath.
+///
+/// The body is plain text, so bold cannot be smuggled in through markup tags.
+/// The emphasised part therefore goes in `extra` as its own markup label.
+///
+/// Responses are added before presenting: a dialog that appears before it has
+/// any response is a dialog with no visible button.
+fn alert(
+    parent: &ApplicationWindow,
+    heading: &str,
+    body: &str,
+    extra: Option<&str>,
+) -> AlertDialog {
     let dialog = AlertDialog::new(Some(heading), Some(body));
+
+    if let Some(text) = extra {
+        dialog.set_extra_child(Some(&markup_label(text)));
+    }
+
     dialog.set_default_response(Some("close"));
     dialog.set_close_response("close");
+    dialog.add_response("close", "Close");
     dialog.present(Some(parent));
     dialog
 }
 
 /// Compositor mismatch. Not a yes/no: there is nothing to agree to.
 pub fn refuse_cross_compositor(parent: &ApplicationWindow, target: &str, current: &str) {
-    let body = format!(
-        "{target} is not the running compositor — {current} is.\n\n\
-         Switching compositor means switching image, so it cannot be done from \
-         here. Use RakuOS software management to switch, then reopen this picker."
+    alert(
+        parent,
+        "Blocked",
+        &format!("{target} is not the running compositor — {current} is."),
+        Some("Switch image in <b>\"RakuOS system management\"</b>."),
     );
-    let dialog = dialog(parent, "Different compositor", &body);
-    dialog.add_response("close", "Close");
 }
 
 /// Detection failed: we refuse rather than guess.
 pub fn refuse_undetected(parent: &ApplicationWindow, reason: &str) {
-    let body = format!(
-        "{reason}\n\nRefusing to guess, because starting the wrong shell is \
-         worse than starting nothing."
+    alert(
+        parent,
+        "Blocked",
+        &format!("{reason}."),
+        Some("Nothing was changed."),
     );
-    let dialog = dialog(parent, "Cannot detect compositor", &body);
-    dialog.add_response("close", "Close");
 }
 
 /// Already running: nothing to switch to.
 pub fn already_running(parent: &ApplicationWindow, shell: &str) {
-    let body = format!(
-        "{shell} is already running.\n\nThere is nothing to switch to. \
-         Pick a different shell if you want to change it."
+    alert(
+        parent,
+        "Already running",
+        &format!("{shell} is already running."),
+        Some("Nothing to switch to."),
     );
-    let dialog = dialog(parent, "Already running", &body);
-    dialog.add_response("close", "Close");
 }
 
 /// Not installed. Installing belongs to the image, not to this picker.
 pub fn not_installed(parent: &ApplicationWindow, shell: &str) {
-    let body = format!(
-        "{shell} is not installed.\n\nPackages come from the RakuOS image. \
-         This picker switches between installed shells and does not install \
-         anything."
+    alert(
+        parent,
+        "Not installed",
+        &format!("{shell} is not installed."),
+        Some("Packages come from the <b>RakuOS</b> image."),
     );
-    let dialog = dialog(parent, "Not installed", &body);
-    dialog.add_response("close", "Close");
 }
 
-/// The yes/no gate in front of the backend.
+/// The real switch: an explicit yes, and only a yes.
+///
+/// Cancel is the default response, so pressing Enter does the safe thing.
 pub fn confirm_switch(
     parent: &ApplicationWindow,
     from: Option<&str>,
     to: &str,
     on_confirm: impl Fn() + 'static,
 ) {
-    let from_line = match from {
-        Some(name) => format!("Currently running: {name}"),
+    let body = match from {
+        Some(name) => format!("{name} is running now."),
         None => "No registered shell is running.".to_string(),
     };
 
-    let body = format!(
-        "Switch to {to}?\n\n\
-         {from_line}\n\n\
-         This will:\n\
-         \x20 1. check the environment\n\
-         \x20 2. back up the running shell's configuration\n\
-         \x20 3. stop the running shell\n\
-         \x20 4. start {to}\n\
-         \x20 5. verify {to} came up, and roll back if it did not\n\n\
-         Your configuration is never deleted."
-    );
-
-    let dialog = AlertDialog::new(Some("Confirm switch"), Some(&body));
+    let dialog = AlertDialog::new(Some(&format!("Switch to {to}?")), Some(&body));
+    dialog.set_extra_child(Some(&markup_label(
+        "Configuration is backed up and never deleted.",
+    )));
     dialog.add_response("cancel", "Cancel");
     dialog.add_response("switch", &format!("Switch to {to}"));
     dialog.set_response_appearance("switch", ResponseAppearance::Suggested);

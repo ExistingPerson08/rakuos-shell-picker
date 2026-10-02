@@ -28,7 +28,7 @@ dipertahankan, bukan aturannya yang dilonggarkan.
 ## Deteksi dan Guard
 
 Compositor tidak berganti lewat picker. Mengganti compositor berarti mengganti
-image, dan itu urusan **rakuos system management**, bukan aplikasi ini.
+image, dan itu urusan **"RakuOS system management"**, bukan aplikasi ini.
 
 Jadi saat user berada di Hyprland dan mengklik tab Niri, semua aksi di tab itu
 harus **ditolak**, bukan dijalankan lalu gagal setengah jalan.
@@ -73,7 +73,7 @@ Pesan penolakan yang dipakai:
 
 ```
 niri is not the running compositor (hyprland is).
-Switching compositor means switching image — use rakuos system management.
+Switching compositor means switching image — use "RakuOS system management".
 ```
 
 ## Wajib: backup sebelum switch

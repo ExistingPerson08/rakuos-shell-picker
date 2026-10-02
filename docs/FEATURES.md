@@ -100,7 +100,7 @@ Spesifikasi lengkap di [LOGGING.md](LOGGING.md).
 
 | Item | Alasan |
 |---|---|
-| Mengganti compositor (Hyprland → Niri) | Berarti ganti image; urusan rakuos system management. Ditolak oleh guard, lihat [SAFETY.md](SAFETY.md) |
+| Mengganti compositor (Hyprland → Niri) | Berarti ganti image; urusan **"RakuOS system management"**. Ditolak oleh guard, lihat [SAFETY.md](SAFETY.md) |
 | Installer paket | Paket datang dari image; picker tidak memanggil dnf |
 | Installer paket | Paket datang dari image; picker tidak memanggil yum/dnf |
 | Mengedit isi konfigurasi | Picker memilih, bukan editor |
