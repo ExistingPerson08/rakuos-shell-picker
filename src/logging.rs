@@ -163,8 +163,11 @@ pub fn startup_lines(detection: &Detection) -> Vec<String> {
         ),
     });
 
-    let mut parts = Vec::new();
+    // Grouped by compositor, because the interesting fact is which compositor
+    // has which shells. A flat list would hide exactly that difference.
+    let mut groups = Vec::new();
     for compositor in crate::compositor::all() {
+        let mut parts = Vec::new();
         for shell in compositor.shells() {
             let state = if shell.running() {
                 "running"
@@ -175,8 +178,9 @@ pub fn startup_lines(detection: &Detection) -> Vec<String> {
             };
             parts.push(format!("{}={state}", shell.id));
         }
+        groups.push(format!("{}: {}", compositor.id(), parts.join(" ")));
     }
-    lines.push(format!("inventory: {}", parts.join(" ")));
+    lines.push(format!("inventory: {}", groups.join(" | ")));
     lines
 }
 
@@ -359,11 +363,23 @@ mod tests {
             .iter()
             .map(|c| c.shells().len())
             .sum();
+        // Every shell entry is exactly one `id=state` token.
         let counted = line
             .strip_prefix("inventory: ")
             .expect("prefix")
-            .split(' ')
+            .split_whitespace()
+            .filter(|token| token.contains('='))
             .count();
         assert_eq!(counted, registered, "inventory line missed a shell: {line}");
+
+        // Grouped per compositor, because the difference between the two pages
+        // is the thing worth being able to read.
+        for compositor in crate::compositor::all() {
+            assert!(
+                line.contains(&format!("{}: ", compositor.id())),
+                "inventory does not name {}: {line}",
+                compositor.id()
+            );
+        }
     }
 }

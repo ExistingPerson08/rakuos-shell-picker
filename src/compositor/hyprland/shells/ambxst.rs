@@ -3,7 +3,7 @@ use crate::shell::{Shell, StartMechanism};
 pub static SHELL: Shell = Shell {
     id: "ambxst",
     display_name: "Ambxst",
-    upstream: "Ambxst",
+    upstream: "Axenide/Ambxst",
     package: None,
     binary: "ambxst",
     start_argv: &["ambxst"],

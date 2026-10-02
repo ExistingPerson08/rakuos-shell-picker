@@ -130,39 +130,31 @@ memindah shell yang sedang berjalan, bukan memasang paket:
 - Hanya satu dari lima jalur yang boleh menghasilkan konfirmasi; itu diuji
   langsung (`every_refusal_is_distinct_from_a_confirmation`).
 
-## Placeholder
+## Halaman compositor yang diblokir
 
-Compositor dengan daftar shell kosong menampilkan kartu lebar di tengah, bukan
-halaman kosong, dengan **banner penjelas** di atasnya (class CSS
-`guard-banner`) yang menjelaskan alasan kenapa halaman itu tidak bisa dipakai:
+Compositor yang bukan yang sedang berjalan tetap menampilkan daftar shell-nya
+penuh. Menutupinya tidak membantu: yang perlu dilihat user justru apa yang akan
+mereka dapat kalau nanti memang berganti image, dan bagaimana bedanya dengan
+compositor sekarang.
 
-```
-+--------------------------------+
-|  Niri is not the running        |
-|  compositor — hyprland is.      |
-|  Use RakuOS software management |
-+--------------------------------+
-|              ?                 |
-|         Coming soon            |
-|  no niri shells registered yet |
-+--------------------------------+
-```
+- **Banner kuning di paling atas**, sebelum grid, dengan alasan penolakannya.
+  Banner ini bukan pesan error, melainkan pemberitahuan lebih awal.
+- **Kartu tetap tampil dan tetap bisa diklik.** Mengklik salah satu memunculkan
+  dialog penolakan, karena itu tujuan akhirnya. Kartu yang dibuat mati hanya
+  terlihat rusak.
+- Banner juga muncul di halaman yang benar-benar kosong, di atas placeholder.
 
-Teks banner dan teks placeholder keduanya dibangun dari
-`Compositor::id()` dan hasil deteksi, bukan ditulis manual per compositor.
+Perbedaan isi kedua halaman:
 
-## Tab compositor
+| Shell | hyprland | niri |
+|---|---|---|
+| Noctalia | ya | ya |
+| DankMaterialShell | ya | ya |
+| Ambxst | ya | ya |
+| Caelestia Shell | ya | **tidak** |
 
-- Satu tab per entri di `compositor::all()`, urutannya urutan daftar.
-- Tab aktif diberi class CSS `active`.
-- Tab yang **bukan** compositor yang sedang jalan diberi class CSS
-  `tab-blocked`: warnanya redup, tapi tetap bisa diklik dan tetap bisa dibaca,
-  supaya alasannya bisa dilihat, bukan sekadar hilang.
-- Konten tiap compositor punya anak `gtk::Stack` dengan nama = `Compositor::id()`,
-  transisi crossfade.
-- Tab pertama yang aktif saat window dibuka (`compositor::default_id()`).
-- Tab clicar juga menulis alasan ke panel log (`blocked: …` atau
-  `niri: no shells registered yet (coming soon).`).
+Caelestia tidak ada di Niri karena upstream hanya menyediakan shell Hyprland,
+dan versi Niri yang ada cuma fork komunitas.
 
 ## Panel log
 

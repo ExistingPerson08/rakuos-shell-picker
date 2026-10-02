@@ -17,8 +17,24 @@ const CARD_WIDE: i32 = 320;
 
 pub fn build(compositor: &'static dyn Compositor, shared: &Shared) -> gtk4::ScrolledWindow {
     let shells = compositor.shells();
+    // The warning is about the compositor, not about how full the page is. It
+    // is shown up front either way, so the reason is never something the user
+    // only discovers after clicking.
+    let guarded = shared.borrow().guard_reason(compositor);
+
     if shells.is_empty() {
         return scroller(placeholder(compositor, shared).upcast());
+    }
+
+    let column = GtkBox::new(Orientation::Vertical, 0);
+    column.set_halign(Align::Center);
+    column.set_valign(Align::Start);
+    column.set_spacing(14);
+    column.set_margin_top(14);
+    column.set_margin_bottom(14);
+
+    if let Some(reason) = &guarded {
+        column.append(&banner(reason));
     }
 
     let grid = gtk4::Grid::new();
@@ -34,15 +50,21 @@ pub fn build(compositor: &'static dyn Compositor, shared: &Shared) -> gtk4::Scro
             1,
         );
     }
+    column.append(&grid);
 
-    let center = GtkBox::new(Orientation::Horizontal, 0);
-    center.set_halign(Align::Center);
-    center.set_valign(Align::Start);
-    center.set_margin_top(14);
-    center.set_margin_bottom(14);
-    center.append(&grid);
+    scroller(column.upcast())
+}
 
-    scroller(center.upcast())
+/// The up-front reason a page cannot be used. Always the first thing on the
+/// page, so it reads as a banner and not as an afterthought.
+fn banner(reason: &str) -> Label {
+    let label = Label::new(Some(reason));
+    label.set_justify(gtk4::Justification::Center);
+    label.set_max_width_chars(46);
+    label.set_wrap(true);
+    label.set_halign(Align::Center);
+    label.add_css_class("guard-banner");
+    label
 }
 
 /// Shown when a compositor has no shells registered yet.
@@ -59,13 +81,7 @@ fn placeholder(compositor: &'static dyn Compositor, shared: &Shared) -> GtkBox {
     let guarded = shared.borrow().guard_reason(compositor);
 
     if let Some(reason) = &guarded {
-        let banner = Label::new(Some(reason));
-        banner.set_justify(gtk4::Justification::Center);
-        banner.set_max_width_chars(46);
-        banner.set_wrap(true);
-        banner.set_halign(Align::Center);
-        banner.add_css_class("guard-banner");
-        column.append(&banner);
+        column.append(&banner(reason));
     }
 
     let card = Button::new();

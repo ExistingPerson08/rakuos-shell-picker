@@ -17,6 +17,10 @@ pub enum StartMechanism {
     Autostart,
     /// Launched from a compositor start-event hook.
     StartEvent,
+    /// Niri's `spawn-at-startup` in `config.kdl`. Kept apart from `Autostart`
+    /// because the backend has to write a different syntax into a different
+    /// file, and Niri waits for the command to return before continuing.
+    SpawnAtStartup,
     /// Launched by a systemd user unit.
     SystemdUserUnit,
     /// Launched directly, with no supervisor.
@@ -90,6 +94,7 @@ impl Shell {
         match self.mechanism {
             StartMechanism::Autostart => "compositor autostart",
             StartMechanism::StartEvent => "compositor start event",
+            StartMechanism::SpawnAtStartup => "niri spawn-at-startup",
             StartMechanism::SystemdUserUnit => "systemd user unit",
             StartMechanism::DirectProcess => "direct process",
         }

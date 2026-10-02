@@ -30,7 +30,7 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | B15 | Panel log hanya tampil saat ada operasi, hidden saat idle | selesai |
 | B16 | Panel log gagal tetap tampil sampai ditutup | selesai (badge di card belum) |
 | B17 | Halaman compositor yang tidak sedang jalan menampilkan banner + penolakan saat diklik | selesai |
-| B9 | Placeholder "Coming soon" untuk compositor tanpa shell | selesai |
+| B9 | Placeholder "Coming soon" untuk compositor tanpa shell | selesai (niri sudah punya isi) |
 | B10 | Kartu `unavailable` untuk shell yang belum terpasang | selesai |
 | B11 | Dialog konfirmasi Yes/No sebelum apply | selesai (UI; eksekusi menyusul) |
 | B12 | Tombol Refresh / Install | belum |
@@ -77,7 +77,7 @@ Ini inti dari proyek, dan sengaja ditahan sampai UI dikunci.
 | E8 | Stop shell lama dengan rapi (bukan `kill -9`) | belum |
 | E9 | Start shell baru dengan mekanisme yang benar | belum |
 | E10 | Deteksi shell yang jalan tanpa lewat daftar kita | belum |
-| E11 | Registry shell untuk Niri | belum |
+| E11 | Registry shell untuk Niri (Noctalia, DMS, Ambxst) | selesai |
 | E12 | Cek environment sebelum switch (display, Wayland) | selesai (UI) |
 | E13 | Guard di backend: `preflight()` menolak cross-compositor | sebagian (UI menolak, `preflight()` belum) |
 

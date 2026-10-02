@@ -4,6 +4,8 @@
 //! own `niri msg` tooling and its own config layout, so nothing here is shared
 //! with the Hyprland backend.
 
+pub mod shells;
+
 use crate::compositor::{socket_alive, Compositor, EnvSource};
 use crate::shell::Shell;
 
@@ -18,10 +20,8 @@ impl Compositor for Niri {
         "niri"
     }
 
-    /// Nothing registered yet. The UI renders a "coming soon" placeholder for
-    /// an empty list instead of failing or borrowing Hyprland's shells.
     fn shells(&self) -> &'static [Shell] {
-        &[]
+        shells::ALL
     }
 
     fn marker_env(&self) -> &'static str {

@@ -32,7 +32,7 @@ pub mod ui;
 
 #[cfg(test)]
 mod registry_tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     use std::path::PathBuf;
 
     use super::compositor;
@@ -56,11 +56,43 @@ mod registry_tests {
     }
 
     #[test]
-    fn shell_ids_are_unique_across_compositors() {
-        let mut seen = HashSet::new();
+    fn shell_ids_are_unique_within_a_compositor() {
+        // Not across compositors: the same shell appears in more than one list
+        // on purpose, because which shells exist is a property of the shell plus
+        // the compositor. What must never happen is the same id twice on one
+        // page, which would make two cards indistinguishable.
+        for compositor in compositor::all() {
+            let mut seen = HashSet::new();
+            for shell in compositor.shells() {
+                assert!(
+                    seen.insert(shell.id),
+                    "{}: duplicate shell id {}",
+                    compositor.id(),
+                    shell.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_shell_id_always_refers_to_the_same_shell() {
+        // The id is what gets written to the session file, so the same id must
+        // not mean two different upstreams.
+        let mut upstream: HashMap<&str, &str> = HashMap::new();
         for compositor in compositor::all() {
             for shell in compositor.shells() {
-                assert!(seen.insert(shell.id), "duplicate shell id: {}", shell.id);
+                match upstream.get(shell.id) {
+                    Some(previous) => assert_eq!(
+                        *previous,
+                        shell.upstream,
+                        "{}: id {} maps to two upstreams",
+                        compositor.id(),
+                        shell.id
+                    ),
+                    None => {
+                        upstream.insert(shell.id, shell.upstream);
+                    }
+                }
             }
         }
     }
@@ -84,7 +116,7 @@ mod registry_tests {
     }
 
     #[test]
-    fn hyprland_has_its_four_shells_and_niri_is_still_empty() {
+    fn each_compositor_lists_the_shells_it_really_supports() {
         let hyprland = compositor::all()
             .into_iter()
             .find(|c| c.id() == "hyprland")
@@ -98,9 +130,25 @@ mod registry_tests {
             .into_iter()
             .find(|c| c.id() == "niri")
             .expect("niri registered");
+        // Noctalia, DMS and Ambxst document Niri support upstream. Caelestia is
+        // absent on purpose: only third party Niri forks exist, so putting it
+        // here would promise something upstream does not ship.
+        assert_eq!(
+            niri.shells().iter().map(|s| s.id).collect::<Vec<_>>(),
+            ["noctalia", "dms", "ambxst"]
+        );
+    }
+
+    #[test]
+    fn niri_does_not_claim_shells_it_has_no_port_for() {
+        let niri = compositor::all()
+            .into_iter()
+            .find(|c| c.id() == "niri")
+            .expect("niri registered");
+        let ids: Vec<_> = niri.shells().iter().map(|s| s.id).collect();
         assert!(
-            niri.shells().is_empty(),
-            "niri has shells now, drop the placeholder"
+            !ids.contains(&"caelestia"),
+            "caelestia has no official niri port; only community forks"
         );
     }
 
