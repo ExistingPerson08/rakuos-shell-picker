@@ -95,37 +95,71 @@ memindah shell yang sedang berjalan, bukan memasang paket:
 |---|---|---|
 | Proses hidup | `running` | **hijau** |
 | Terpasang, tidak jalan | `switch` | netral |
-| Belum terpasang | `switch` + badge `not installed` | diredupkan |
-| Compositornya tidak sedang jalan | badge `not the running compositor` | diredupkan + non-interaktif |
+| Belum terpasang | `not installed` | diredupkan |
 
-- Shell yang belum terpasang dapat class CSS `unavailable`.
-- Card milik compositor yang tidak sedang jalan dapat class CSS `disabled`:
-  tidak bisa diklik, hover tidak berubah, ada badge penjelas.
+- Shell yang belum terpasang dapat class CSS `unavailable`, dan sub-labelnya
+  memakai kata `not installed` — bukan `switch`, karena memang tidak ada yang
+  bisa dipindah dan memasang paket berada di luar lingkup picker.
+- Shell yang sedang hidup dapat class CSS `running` pada tombol **dan** pada
+  sub-label, sehingga teksnya ikut hijau.
+- Card milik compositor yang tidak sedang jalan **tetap bisa diklik**, bukan
+  non-interaktif. Mengkliknya membuka dialog penolakan, karena card yang dibuat
+  mati hanya terlihat rusak.
 - Single-selection: memilih satu kartu mematikan yang lain.
 - Card yang gagal dapat class CSS `failed` sampai operasi berikutnya.
+
+## Dialog safety
+
+`AdwAlertDialog`. Kelima jalur klik, ditentukan oleh fungsi murni
+`ui::dialog::decide()` yang sudah ada testnya sendiri:
+
+| Keadaan | Judul | Tombol |
+|---|---|---|
+| Compositor berbeda | `Blocked` | `Close` |
+| Compositor tidak terdeteksi | `Blocked` | `Close` |
+| Shell sudah hidup | `Already running` | `Close` |
+| Shell belum terpasang | `Not installed` | `Close` |
+| Shell terpasang dan idle | `Confirm switch` | `Cancel`, `Switch` |
+
+- Hanya `Confirm switch` + `Switch` yang boleh lanjut ke backend. Empat jalur
+  lain berhenti di sini.
+- Eksekusi switch adalah urusan `ShellBackend::preflight()`, bukan dialog.
+- Hanya satu dari lima jalur yang boleh menghasilkan konfirmasi; itu diuji
+  langsung (`every_refusal_is_distinct_from_a_confirmation`).
+
+## Placeholder
+
+Compositor dengan daftar shell kosong menampilkan kartu lebar di tengah, bukan
+halaman kosong, dengan **banner penjelas** di atasnya (class CSS
+`guard-banner`) yang menjelaskan alasan kenapa halaman itu tidak bisa dipakai:
+
+```
++--------------------------------+
+|  Niri is not the running        |
+|  compositor — hyprland is.      |
+|  Use RakuOS software management |
++--------------------------------+
+|              ?                 |
+|         Coming soon            |
+|  no niri shells registered yet |
++--------------------------------+
+```
+
+Teks banner dan teks placeholder keduanya dibangun dari
+`Compositor::id()` dan hasil deteksi, bukan ditulis manual per compositor.
 
 ## Tab compositor
 
 - Satu tab per entri di `compositor::all()`, urutannya urutan daftar.
 - Tab aktif diberi class CSS `active`.
+- Tab yang **bukan** compositor yang sedang jalan diberi class CSS
+  `tab-blocked`: warnanya redup, tapi tetap bisa diklik dan tetap bisa dibaca,
+  supaya alasannya bisa dilihat, bukan sekadar hilang.
 - Konten tiap compositor punya anak `gtk::Stack` dengan nama = `Compositor::id()`,
   transisi crossfade.
 - Tab pertama yang aktif saat window dibuka (`compositor::default_id()`).
-
-## Placeholder
-
-Compositor dengan daftar shell kosong menampilkan satu kartu lebar di tengah,
-bukan halaman kosong:
-
-```
-+--------------------------------+
-|              ?                 |
-|         Coming soon            |
-|  no <id> shells registered yet |
-+--------------------------------+
-```
-
-Teks dibuat dari `Compositor::id()`, bukan ditulis manual per compositor.
+- Tab clicar juga menulis alasan ke panel log (`blocked: …` atau
+  `niri: no shells registered yet (coming soon).`).
 
 ## Panel log
 
@@ -146,18 +180,21 @@ Teks dibuat dari `Compositor::id()`, bukan ditulis manual per compositor.
 
 ## Palet
 
+Nilai di bawah diambil dari `src/style.css`, bukan dari wireframe lama. Palet
+sesungguhnya ungu gelap, bukan biru.
+
 | Token | Nilai |
 |---|---|
-| Background | `#111318` |
-| Surface | `#1a1e26` |
-| Surface/card | `#222733` |
-| Border | `alpha(white, 0.10)` |
-| Teks | `#e8eaf0` |
-| Teks redup | `#9aa1b1` |
-| Aksen | `#7aa2f7` |
-| Sukses / `running` | `#9ece6a` |
-| Galat / `failed` | `#f7768e` |
-| Nonaktif | `#565f89` |
+| Background | `#14131a` |
+| Tab aktif | `#4a4458` |
+| Border kartu | `alpha(white, 0.16)` |
+| Border kartu terpilih | `#89b4fa` |
+| Teks nama | `#cfc9d6` |
+| Teks redup / `section-title` | `#8b8494` |
+| Nonaktif | `#6b6577` |
+| Sukses / `running` | `#a6e3a1` |
+| Galat / `failed` | `#f38ba8` |
+| Peringatan / guard | `#f9e2af` |
 
 Semua warna lewat class CSS di `src/style.css`.
 

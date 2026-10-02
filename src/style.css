@@ -65,6 +65,53 @@ window.picker {
   opacity: 0.5;
 }
 
+/* The shell that is actually running right now. Green, per docs/UI.md. */
+.card.running {
+  border-color: alpha(#a6e3a1, 0.40);
+}
+
+.card.running:hover {
+  background-color: alpha(#a6e3a1, 0.10);
+}
+
+.card-sub.running {
+  color: #a6e3a1;
+  font-weight: 700;
+}
+
+.card-sub.failed {
+  color: #f38ba8;
+  font-weight: 700;
+}
+
+/* Compositor that is not the running one. Still readable, still clickable so
+   the refusal can be seen, but visually held back. */
+.tab-blocked {
+  color: #6b6577;
+}
+
+.tab-blocked.active {
+  color: #cfc9d6;
+}
+
+.guard-banner {
+  color: #f9e2af;
+  background-color: alpha(#f9e2af, 0.10);
+  border: 1px solid alpha(#f9e2af, 0.30);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.82em;
+}
+
+.card-guard {
+  border-color: alpha(#f9e2af, 0.35);
+}
+
+.card-guard:hover {
+  background-color: alpha(#f9e2af, 0.10);
+  border-color: #f9e2af;
+}
+
 .logo-frame {
   border: 1px solid alpha(white, 0.12);
   border-radius: 10px;

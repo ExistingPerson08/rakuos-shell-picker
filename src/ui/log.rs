@@ -1,7 +1,12 @@
 //! The log panel pinned to the bottom of the window, plus writing to it.
+//!
+//! The panel is for progress during an operation. Inventory and version detail
+//! belong to the application log, not here; see docs/LOGGING.md.
 
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Orientation, TextView};
+
+use crate::compositor::Detection;
 
 /// Fixed height for the log panel at the bottom of the window.
 pub const LOG_HEIGHT: i32 = 100;
@@ -42,18 +47,25 @@ pub fn write(log: &TextView, line: &str) {
     buffer.insert(&mut end, "\n");
 }
 
-/// Opening summary, built from the registry rather than hardcoded per shell.
-pub fn startup(log: &TextView) {
+/// Opening summary. Kept short on purpose: this is a status line, not the
+/// application log. The full inventory goes to the log file.
+pub fn startup(log: &TextView, detection: &Detection) {
     write(log, "rakuos-shell-picker 0.1.0");
-    for compositor in crate::compositor::all() {
-        let shells = compositor.shells();
-        write(
+
+    match detection.current {
+        Some(id) => write(log, &format!("running compositor: {id}")),
+        None => write(
             log,
-            &format!("{}: {} shells", compositor.label(), shells.len()),
-        );
-        for shell in shells {
-            write(log, &format!("  {:<10} {}", shell.id, shell.status_label()));
-        }
+            &detection
+                .refusal()
+                .unwrap_or_else(|| "compositor not identified".to_string()),
+        ),
     }
-    write(log, "select a shell card to continue");
+
+    let registered: usize = crate::compositor::all()
+        .iter()
+        .map(|c| c.shells().len())
+        .sum();
+    write(log, &format!("{registered} shells registered"));
+    write(log, "select a shell card to switch");
 }

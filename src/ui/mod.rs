@@ -4,8 +4,12 @@
 //! the tab bar, the compositor stack and the log panel together. It knows
 //! nothing about individual shells, and nothing about how a compositor is
 //! implemented, so backend work never has to touch this file.
+//!
+//! Every click on a shell card goes through `Selection::activate`, which is the
+//! only place the safety gate is invoked from.
 
 pub mod card;
+pub mod dialog;
 pub mod grid;
 pub mod log;
 pub mod logo;
@@ -16,8 +20,9 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Label, Orientation, TextView, ToggleButton};
+use libadwaita::ApplicationWindow;
 
-use crate::compositor;
+use crate::compositor::{self, Compositor, Detection};
 
 /// One selectable shell card, remembered so selecting one can deselect the rest.
 struct Item {
@@ -30,13 +35,19 @@ struct Item {
 pub struct Selection {
     log: TextView,
     items: Vec<Item>,
+    detection: Detection,
+    /// Weak, because the window owns this widget: a strong reference would make
+    /// the two keep each other alive.
+    window: gtk4::glib::WeakRef<ApplicationWindow>,
 }
 
 impl Selection {
-    pub fn new(log: TextView) -> Self {
+    pub fn new(log: TextView, detection: Detection, window: &Rc<ApplicationWindow>) -> Self {
         Self {
             log,
             items: Vec::new(),
+            detection,
+            window: window.downgrade(),
         }
     }
 
@@ -49,7 +60,7 @@ impl Selection {
     }
 
     /// Single-selection: clear every other card, then mark this one.
-    pub fn activate(&mut self, shell_id: &str) {
+    fn highlight(&mut self, shell_id: &str) {
         for item in self.items.iter() {
             if item.shell_id != shell_id {
                 item.button.set_active(false);
@@ -64,6 +75,59 @@ impl Selection {
     pub fn write(&self, line: &str) {
         log::write(&self.log, line);
     }
+
+    pub fn detection(&self) -> &Detection {
+        &self.detection
+    }
+
+    /// A card was clicked. Runs the safety gate; nothing else does.
+    pub fn activate(
+        &mut self,
+        compositor: &'static dyn Compositor,
+        shell: &'static crate::shell::Shell,
+    ) {
+        self.highlight(shell.id);
+
+        let action = dialog::decide(&self.detection, compositor, shell);
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        dialog::present(&window, action, &self.log);
+    }
+
+    /// The niri page and any other non-running compositor: cards are inert, but
+    /// they still explain themselves instead of looking broken.
+    pub fn guard_reason(&self, compositor: &'static dyn Compositor) -> Option<String> {
+        if let Some(current) = self.detection.current {
+            if current != compositor.id() {
+                return Some(format!(
+                    "{} is not the running compositor — {} is. Switching compositor \
+                     means switching image: use RakuOS software management.",
+                    compositor.label(),
+                    current
+                ));
+            }
+            return None;
+        }
+        self.detection.refusal()
+    }
+
+    /// Clicked the placeholder on a page that the guard is blocking. Shows the
+    /// refusal instead of silently doing nothing.
+    pub fn guard_click(&mut self, compositor: &'static dyn Compositor) {
+        let reason = self
+            .guard_reason(compositor)
+            .unwrap_or_else(|| "refused: nothing to switch to.".to_string());
+        self.write(&format!("refused: {reason}"));
+
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        match self.detection.current {
+            Some(current) => dialog::refuse_cross_compositor(&window, compositor.id(), current),
+            None => dialog::refuse_undetected(&window, &reason),
+        }
+    }
 }
 
 pub type Shared = Rc<RefCell<Selection>>;
@@ -73,9 +137,16 @@ pub struct Picker {
 }
 
 impl Picker {
-    pub fn new() -> Self {
+    pub fn new(window: &Rc<ApplicationWindow>) -> Self {
         let log = log::build();
-        let shared: Shared = Rc::new(RefCell::new(Selection::new(log.clone())));
+        let detection = compositor::detect();
+        let shared: Shared = Rc::new(RefCell::new(Selection::new(
+            log.clone(),
+            detection.clone(),
+            window,
+        )));
+
+        log::startup(&log, &detection);
 
         // One tab per compositor, one page per compositor, straight from the
         // registry. Registering a shell touches no UI file.
@@ -93,18 +164,10 @@ impl Picker {
         root.append(&stack);
         root.append(&log::panel(&log));
 
-        log::startup(&log);
-
         Self { root }
     }
 
     pub fn widget(&self) -> &gtk4::Widget {
         self.root.upcast_ref()
-    }
-}
-
-impl Default for Picker {
-    fn default() -> Self {
-        Self::new()
     }
 }

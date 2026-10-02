@@ -4,7 +4,7 @@
 //! the window growing: adding shells later stays safe well past 20 entries.
 
 use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Label, Orientation};
+use gtk4::{Align, Box as GtkBox, Button, Label, Orientation};
 
 use crate::compositor::Compositor;
 use crate::ui::{card, logo, Shared};
@@ -18,7 +18,7 @@ const CARD_WIDE: i32 = 320;
 pub fn build(compositor: &'static dyn Compositor, shared: &Shared) -> gtk4::ScrolledWindow {
     let shells = compositor.shells();
     if shells.is_empty() {
-        return scroller(placeholder(compositor).upcast());
+        return scroller(placeholder(compositor, shared).upcast());
     }
 
     let grid = gtk4::Grid::new();
@@ -27,7 +27,7 @@ pub fn build(compositor: &'static dyn Compositor, shared: &Shared) -> gtk4::Scro
 
     for (i, shell) in shells.iter().enumerate() {
         grid.attach(
-            &card::build(shell, shared),
+            &card::build(shell, compositor, shared),
             (i as i32) % COLUMNS,
             (i as i32) / COLUMNS,
             1,
@@ -45,27 +45,59 @@ pub fn build(compositor: &'static dyn Compositor, shared: &Shared) -> gtk4::Scro
     scroller(center.upcast())
 }
 
-/// Shown when a compositor has no shells registered yet, so an empty registry
-/// reads as "not built" instead of a broken or blank page.
-fn placeholder(compositor: &'static dyn Compositor) -> GtkBox {
-    let card = GtkBox::new(Orientation::Vertical, 0);
+/// Shown when a compositor has no shells registered yet.
+///
+/// When that compositor is also not the running one, this doubles as the guard
+/// surface: the card stays clickable so the refusal can actually be seen, and
+/// a banner above it says why up front.
+fn placeholder(compositor: &'static dyn Compositor, shared: &Shared) -> GtkBox {
+    let column = GtkBox::new(Orientation::Vertical, 0);
+    column.set_halign(Align::Center);
+    column.set_valign(Align::Center);
+    column.set_spacing(16);
+
+    let guarded = shared.borrow().guard_reason(compositor);
+
+    if let Some(reason) = &guarded {
+        let banner = Label::new(Some(reason));
+        banner.set_justify(gtk4::Justification::Center);
+        banner.set_max_width_chars(46);
+        banner.set_wrap(true);
+        banner.set_halign(Align::Center);
+        banner.add_css_class("guard-banner");
+        column.append(&banner);
+    }
+
+    let card = Button::new();
     card.set_halign(Align::Center);
-    card.set_valign(Align::Center);
     card.set_size_request(CARD_WIDE, -1);
     card.add_css_class("card");
     card.add_css_class("card-wide");
+    if guarded.is_some() {
+        card.add_css_class("card-guard");
+    }
 
-    let mark = Label::new(Some("?"));
+    let inner = GtkBox::new(Orientation::Vertical, 0);
+    inner.set_halign(Align::Center);
+    inner.set_valign(Align::Center);
+
+    let mark = Label::new(Some(if guarded.is_some() { "!" } else { "?" }));
     mark.add_css_class("logo-fallback");
-    mark.add_css_class("dim-fallback");
+    if guarded.is_none() {
+        mark.add_css_class("dim-fallback");
+    }
     mark.set_halign(Align::Center);
     mark.set_valign(Align::Center);
-    card.append(&logo::frame(&mark.upcast()));
+    inner.append(&logo::frame(&mark.upcast()));
 
-    let title = Label::new(Some("Coming soon"));
+    let title = Label::new(Some(if guarded.is_some() {
+        "Blocked"
+    } else {
+        "Coming soon"
+    }));
     title.add_css_class("card-label");
     title.set_halign(Align::Center);
-    card.append(&title);
+    inner.append(&title);
 
     let sub = Label::new(Some(&format!(
         "no {} shells registered yet",
@@ -73,9 +105,17 @@ fn placeholder(compositor: &'static dyn Compositor) -> GtkBox {
     )));
     sub.add_css_class("card-sub");
     sub.set_halign(Align::Center);
-    card.append(&sub);
+    inner.append(&sub);
 
-    card
+    card.set_child(Some(&inner));
+
+    let selected = shared.clone();
+    card.connect_clicked(move |_| {
+        selected.borrow_mut().guard_click(compositor);
+    });
+
+    column.append(&card);
+    column
 }
 
 fn scroller(child: gtk4::Widget) -> gtk4::ScrolledWindow {

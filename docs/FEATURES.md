@@ -10,8 +10,8 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | A1 | Binary `rakuos-shell-picker`, app ID `org.rakuos.ShellPicker` | selesai |
 | A2 | Satu crate (`lib` + `bin`) dengan modul per compositor | selesai |
 | A3 | Struktur modular, `ui/` terisolasi dari backend | selesai |
-| A4 | 10 unit test (registry, logo, urutan, state) | selesai |
-| A5 |Clippy bersih, `cargo test` hijau | selesai |
+| A4 | 27 unit test (registry, logo, urutan, state, guard, dialog) | selesai |
+| A5 | Clippy bersih, `cargo test` hijau | selesai |
 
 ## B. Tampilan
 
@@ -25,14 +25,14 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | B6 | Logo SVG langsung via GdkTexture, tanpa PNG | selesai |
 | B7 | Logo & label center, nama panjang di-ellipsize | selesai |
 | B8 | Panel log 100px di bawah, monospace, scroll sendiri | selesai |
-| B13 | Status `running` diberi warna hijau | belum |
-| B14 | Label aksi berbunyi "switch", bukan "install" | belum |
+| B13 | Status `running` diberi warna hijau | selesai |
+| B14 | Label aksi berbunyi "switch", bukan "install" | selesai |
 | B15 | Panel log hanya tampil saat ada operasi, hidden saat idle | belum |
 | B16 | Panel log gagal tetap tampil sampai ditutup + badge di card | belum |
-| B17 | Card untuk compositor yang tidak sedang jalan di-disable | belum |
+| B17 | Halaman compositor yang tidak sedang jalan menampilkan banner + penolakan saat diklik | selesai |
 | B9 | Placeholder "Coming soon" untuk compositor tanpa shell | selesai |
 | B10 | Kartu `unavailable` untuk shell yang belum terpasang | selesai |
-| B11 | Konfirmasi sebelum apply | belum |
+| B11 | Dialog konfirmasi Yes/No sebelum apply | selesai (UI; eksekusi menyusul) |
 | B12 | Tombol Refresh / Install | belum |
 
 ## C. Deteksi
@@ -42,12 +42,12 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | C1 | Binary ada di `PATH` | selesai |
 | C2 | Paket terpasang (`rpm -q`) | selesai |
 | C3 | Proses sedang jalan (scan `/proc/*/comm`) | selesai |
-| C4 | Status `running` / `installed` / `not installed` di kartu | selesai |
+| C4 | Status `running` / `switch` / `not installed` di kartu | selesai |
 | C5 | Health probe per shell (socket/API) | belum |
-| C6 | Deteksi compositor aktif dari envvar (`HYPRLAND_INSTANCE_SIGNATURE`, `NIRI_SOCKET`) | belum |
-| C7 | Deteksi sesi Wayland (`WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`) | belum |
-| C8 | Fallback deteksi lewat `/proc/*/exe` | belum |
-| C9 | Tolak semua aksi kalau compositor tidak terdeteksi | belum |
+| C6 | Deteksi compositor aktif dari envvar (`HYPRLAND_INSTANCE_SIGNATURE`, `NIRI_SOCKET`) | selesai |
+| C7 | Deteksi sesi Wayland (`WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`) | selesai |
+| C8 | Fallback deteksi lewat `/proc/*/exe` | selesai |
+| C9 | Tolak semua aksi kalau compositor tidak terdeteksi | selesai |
 
 ## D. State
 
@@ -77,8 +77,8 @@ Ini inti dari proyek, dan sengaja ditahan sampai UI dikunci.
 | E9 | Start shell baru dengan mekanisme yang benar | belum |
 | E10 | Deteksi shell yang jalan tanpa lewat daftar kita | belum |
 | E11 | Registry shell untuk Niri | belum |
-| E12 | Cek environment sebelum switch (display, Wayland) | belum |
-| E13 | Guard di backend: `preflight()` menolak cross-compositor | belum |
+| E12 | Cek environment sebelum switch (display, Wayland) | selesai (UI) |
+| E13 | Guard di backend: `preflight()` menolak cross-compositor | sebagian (UI menolak, `preflight()` belum) |
 
 ## G. Logging
 

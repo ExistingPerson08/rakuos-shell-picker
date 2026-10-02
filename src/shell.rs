@@ -103,12 +103,17 @@ impl Shell {
         process_running(self.binary)
     }
 
-    /// One line for the UI card and the log.
+    /// The line under the shell name on its card.
+    ///
+    /// Says what clicking will do, per docs/UI.md: an installed, idle shell is
+    /// a candidate to switch to, while an uninstalled one has nothing to switch
+    /// to at all. `running` is the one case where clicking changes nothing,
+    /// which the dialog then explains.
     pub fn status_label(&self) -> &'static str {
         if self.running() {
             "running"
         } else if self.installed() {
-            "installed"
+            "switch"
         } else {
             "not installed"
         }

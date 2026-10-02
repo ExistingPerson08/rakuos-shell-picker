@@ -1,4 +1,4 @@
-//! Composer tabs, one per registered compositor.
+//! Compositor tabs, one per registered compositor.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -25,6 +25,13 @@ pub fn build(stack: &gtk4::Stack, shared: &Shared) -> GtkBox {
             tab.add_css_class("active");
         }
 
+        // A tab that is not the running compositor is still readable, but it is
+        // marked so it is obvious why its cards cannot be used.
+        let is_current = shared.borrow().detection().is_current(compositor);
+        if !is_current {
+            tab.add_css_class("tab-blocked");
+        }
+
         let tabs_cb = tabs.clone();
         let shared = shared.clone();
         let stack = stack.clone();
@@ -48,10 +55,12 @@ pub fn build(stack: &gtk4::Stack, shared: &Shared) -> GtkBox {
 
             let selection = shared.borrow();
             selection.write(&format!("compositor -> {label}"));
-            if count == 0 {
-                selection.write(&format!("{id}: no shells registered yet (coming soon)."));
-            } else {
-                selection.write(&format!("{id}: {count} shells"));
+            match selection.guard_reason(compositor) {
+                Some(reason) => selection.write(&format!("blocked: {reason}")),
+                None if count == 0 => {
+                    selection.write(&format!("{id}: no shells registered yet (coming soon)."))
+                }
+                None => selection.write(&format!("{id}: {count} shells")),
             }
         });
 

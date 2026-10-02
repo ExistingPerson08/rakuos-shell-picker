@@ -1,4 +1,8 @@
+use std::rc::Rc;
+
 use gtk4::prelude::*;
+// libadwaita has its own prelude; AdwWindowExt / AdwDialogExt live there.
+use libadwaita::prelude::*;
 use libadwaita::{Application, ApplicationWindow};
 
 use crate::ui::Picker;
@@ -17,14 +21,20 @@ pub fn run() -> gtk4::glib::ExitCode {
             return;
         }
 
-        let picker = Picker::new();
-        let window = ApplicationWindow::builder()
-            .application(app)
-            .title("Shell Picker")
-            .default_width(DEFAULT_SIZE)
-            .default_height(DEFAULT_SIZE)
-            .content(picker.widget())
-            .build();
+        // The window is built first because the page needs it: dialogs are
+        // parented to it, so a dialog cannot be created before the window
+        // exists. The content is attached afterwards.
+        let window = Rc::new(
+            ApplicationWindow::builder()
+                .application(app)
+                .title("Shell Picker")
+                .default_width(DEFAULT_SIZE)
+                .default_height(DEFAULT_SIZE)
+                .build(),
+        );
+
+        let picker = Picker::new(&window);
+        window.set_content(Some(picker.widget()));
         window.present();
     });
 
