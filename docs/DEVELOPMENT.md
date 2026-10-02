@@ -10,23 +10,39 @@ Cek cepat sebelum mulai kerja:
 ./scripts/check-deps.sh
 ```
 
-## ⚠️ Penting: paket terpasang, tapi rpmdb tidak lagi mencatatnya
+## ⚠️ Penting: `rpm -q` buta terhadap overlay
 
-Toolchain ini **semuanya dipasang lewat dnf**, dengan perintah:
+Toolchain ini dipasang ke **overlay**, dan `rum` menyimpannya di rpmdb yang
+terpisah dari base image. Dua rpmdb itu ada berdampingan:
 
-```bash
-sudo dnf install -y rustfmt clippy rust cargo gtk4-devel libadwaita-devel
+```
+$ rum paths
+mode: split (RakuOS overlay)
+base snapshot rpmdb: /usr/share/rpm
+overlay rpmdb:       /var/lib/rakuos/rum-rpmdb
 ```
 
-Riwayat dnf mencatat dua transaksi:
+`rpm -q` membaca base saja, jadi paket yang ada di overlay terlihat "tidak
+terpasang" padahal file-nya utuh di `/usr/bin` dan `/usr/lib64/pkgconfig`.
+Ini bukan rpmdb rusak dan bukan pencatatan yang hilang; transactasinya masih
+ada, di tempat lain:
 
-| Transaksi | Waktu | Paket |
-|---|---|---|
-| **#9** | 2026-10-02 10:10:31 | `rust`, `cargo`, `gtk4-devel`, `libadwaita-devel` (+ `rust-std-static`) |
-| **#10** | 2026-10-02 10:11:58 | `clippy`, `rustfmt` |
+```
+$ rum history list
+  ID  Date and time        Action(s)    Altered
+   9  2026-10-02 10:10:31  Install           82
+  10  2026-10-02 10:11:58  Install            2
+```
 
-Masalahnya: **sekarang `rpm` bilang semua paket itu tidak terpasang**, padahal
-file-nya masih ada di `/usr/bin` dan `/usr/lib64/pkgconfig`.
+Cara yang benar untuk bertanya "apakah paket ini terpasang":
+
+```
+$ rum origin rust          ->  rust: Overlay
+$ rpm --dbpath /var/lib/rakuos/rum-rpmdb -q rust
+rust-1.98.1-1.fc44.x86_64
+```
+
+Jangan pernah menyimpulkan "tidak terpasang" dari `rpm -q` saja.
 
 ```
 rpm -q rust          -> package rust is not installed
@@ -38,8 +54,9 @@ rpm -qf /usr/bin/rustc        -> file is not owned by any package
 rpm -qf /usr/lib64/pkgconfig/gtk4.pc -> file is not owned by any package
 ```
 
-Jadi: file-nya ada, pencatatannya hilang. Kemungkinan besar rpmdb di-reset atau
-diganti setelah transaksi 10, sementara isi filesystem tidak ikut berubah.
+Jadi: file ada, catatannya ada, tapi di rpmdb yang berbeda. Yang tidak ada
+adalah paket yang hilang — overhaul image tidak destroying toolchain selama
+overlay masih menyimpan transactasinya.
 
 Yang **masih** tercatat dengan benar dan aman:
 
@@ -64,11 +81,11 @@ gdk-pixbuf2-2.44.6
 
 1. **Jangan dihapus manual** `/usr/bin/rustc`, `/usr/bin/cargo`, atau file `.pc`
    di `/usr/lib64/pkgconfig/`. Tidak ada paket yang bisa memulihkannya kalau hilang.
-2. Pastikan image RakuOS yang dipakai untuk development **secara eksplisit**
-   mencantumkan `rust`, `cargo`, `rustfmt`, `clippy`, `gtk4-devel`,
-   `libadwaita-devel`. Jangan mengandalkan "sudah ada di mesin ini".
-3. Kalau `dnf history` menunjukkan transaksi 9/10 padahal `rpm -q` bilang tidak
-   terpasang, itu tanda rpmdb tidak konsisten — laporkan, jangan ditimpanya.
+2. Untuk mengecek keberadaan paket, jangan pakai `rpm -q`. Pakai `rum origin <paket>`.
+   Lihat `docs/SAFETY.md` untuk versi lengkapnya.
+3. Kalau sebuah image baru tidak menyebut toolchain di dalamnya, toolchain itu
+   hilang dari base image — tapi masih bisa dipulihkan dari overlay selama
+   transactasinya belum di-reset.
 
 ## Yang terverifikasi sekarang
 
@@ -85,7 +102,7 @@ gdk-pixbuf2-2.44.6
 | pango | 1.57.1 | teks, ellipsize |
 | librsvg | 2.62.3 | render logo SVG saat runtime |
 | pkg-config | — | mencari `.pc` |
-| rpm | 6.1.0 | deteksi paket terpasang (fitur C2) |
+| rum | 0.1.0 | deteksi paket terpasang, lewat `rum origin` (fitur C2) |
 | git | 2.55.0 | version control |
 
 Minimum yang harus dipenuhi: **rustc ≥ 1.80**, **GTK ≥ 4.14** (dibutuhkan
@@ -116,7 +133,7 @@ cargo run                    # jalankan picker
 | Kebutuhan | Alasan | Tanpa ini |
 |---|---|---|
 | Wayland + compositor berjalan | app butuh display | gagal start |
-| `rpm` | mendeteksi shell terpasang | semua terbaca "not installed" |
+| `rum` | mendeteksi shell terpasang | `rpm -q` hanya melihat base image, sehingga shell di overlay selalu terbaca "not installed" |
 | `/proc` | mendeteksi proses berjalan | status "running" tak pernah muncul |
 | `~/.config/hypr/config/windowrules.lua` berisi rule ShellPicker | window ikut di-tile tanpa rule | rasio persegi hilang |
 

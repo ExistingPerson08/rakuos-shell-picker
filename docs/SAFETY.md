@@ -95,21 +95,93 @@ niri is not the running compositor
 Switching compositor means switching image — use "RakuOS system management".
 ```
 
+## Packages: `rpm -q` tidak bisa dipercaya
+
+RakuOS jalan dalam mode *split*: base image yang read-only, plus overlay tempat
+semua instalasi yang dibuat setelah image itu. `rum` menyimpan keduanya
+terpisah, dan memegangnya tetap pisah adalah disengaja:
+
+```
+$ rum paths
+mode: split (RakuOS overlay)
+base snapshot rpmdb: /usr/share/rpm
+overlay rpmdb:       /var/lib/rakuos/rum-rpmdb
+```
+
+```
+$ rum -qa | wc -l                                   # 1895
+$ rpm --dbpath /usr/share/rpm -qa | wc -l          # 1895
+$ rpm --dbpath /var/lib/rakuos/rum-rpmdb -qa | wc -l   # 248
+```
+
+`rpm -q` membaca base saja. Dari 248 paket overlay, 243 di antaranya tidak
+ditemukan `rpm -q`. Konsekuensinya kalau backend memakainya: `rum install dms`
+berhasil, lalu picker tetap menampilkan "not installed" dan preflight menolak
+switch ke shell yang barusan terpasang.
+
+Jawaban yang benar:
+
+```
+$ rum origin noctalia     ->  noctalia: Base
+$ rum origin firefox     ->  firefox: Overlay
+$ rum origin dms          ->  dms: NotInstalled
+```
+
+Jebakan kedua: `rum info <paket>` keluar dengan status 0 bahkan kalau paketnya
+tidak ada. "Tidak ada" hanya muncul di teks output:
+
+```
+$ rum info caelestia
+No package named 'caelestia' found.        # exit=0
+```
+
+Jadi exit code tidak boleh dipakai sebagai pemeriksaan ketersediaan. Yang dipakai
+`rum origin`, atau `rum repoquery`.
+
+### Terpasang, dan masuk overlay, itu dua hal berbeda
+
+| Pertanyaan | Sumber jawaban |
+|---|---|
+| Apakah shell-nya terpasang? | `rum origin` -> Base / Overlay / NotInstalled |
+| Shell mana yang tercatat di overlay? | `/var/lib/rakuos/packages.list` dan `/var/lib/rakuos/packages-rpm.list` |
+
+Dua file terakhir itu yang dibaca tab **Overlay** di "RakuOS system management",
+jadi picker membaca file yang sama supaya tidak pernah bertentangan dengan
+yang ditampilkan sistem. Bedanya: `packages.list` hanya memuat paket yang
+memang diminta user, sedangkan rpmdb overlay ikut memuat seluruh dependency
+yang ikut terpasang.
+
+Konsekuensi yang sudah terlihat sekarang: `Noctalia` ada di base image,
+`dms` ada di repo `rakuos` tapi belum terpasang, dan `caelestia` maupun `ambxst`
+tidak ada di repo mana pun sehingga belum mungkin terpasang sama sekali.
+
 ## Wajib: backup sebelum switch
 
 Urutan satu-satunya yang boleh dipakai:
 
 ```
-1. cek environment  (display, Wayland, shell target benar-benar terpasang)
-2. cek backend sehat (bisa start, config path ketemu)
-3. BACKUP config shell yang AKTIF           <- gagal di sini, batal
-4. catat state "sedang berganti"            <- supaya sesi bisa dipulihkan
-5. stop shell lama dengan rapi
-6. start shell baru
-7. verifikasi shell baru benar-benar hidup
-8. tulis state active/previous
-9. kalau langkah 6/7 gagal -> ROLLBACK dari backup
+ 1. refuse    : guard compositor, shell target terpasang, lokasi config-nya
+                diketahui, dan tidak ada shell asing yang sedang hidup
+ 2. preflight : environment + start mechanism siap (binary, unit systemd, atau
+                file autostart benar-benar ada)
+ 3. BACKUP    : config shell yang AKTIF -> backups/<waktu>-<compositor>-<shell>/
+                (menyalin, bukan memindahkan) + metadata.toml
+                                            <- gagal di sini, switch dibatalkan
+ 4. catat state "sedang berganti"           -> supaya sesi bisa dipulihkan
+ 5. seed      : config target HANYA kalau belum ada
+ 6. stop      : shell lama diberi SIGTERM -> ditunggu -> batas waktu -> kill -9
+                hanya sebagai upaya terakhir
+ 7. start     : shell baru, sesuai StartMechanism-nya
+ 8. verify    : shell baru benar-benar hidup dalam batas waktu
+ 9. state     : tulis active/previous
+10. ROLLBACK  : kalau langkah 7/8 gagal, start lagi shell lama dan kembalikan
+                config dari backup
 ```
+
+Langkah 5 bukan "menyalin config ke home". Kalau `~/.config/<target>` sudah ada,
+langkah itu dilewati seluruhnya. Config milik user tidak pernah ditimpa, dan
+reset ke default adalah tindakan terpisah dengan konfirmasi sendiri, bukan
+bagian dari switch.
 
 Aturan penting dari urutan itu:
 
@@ -117,6 +189,82 @@ Aturan penting dari urutan itu:
 - **Kalau backup gagal, switch tidak jalan.** Ini bukan peringatan, ini syarat.
 - **Tidak ada penghapusan backup secara otomatis.** Pembersihan hanya kalau
   user sendiri yang memintanya, dan jumlah backup ditampilkan dulu.
+
+## Boleh dan tidak boleh dilakukan picker
+
+Batasnya bukan "tidak boleh menyentuh apa pun", tapi "boleh hanya setelah
+syaratnya terpenuhi". Yang tidak punya syarat ada di tabel kedua.
+
+| Boleh | Syaratnya |
+|---|---|
+| Memasang paket yang belum ada, lewat `pkexec` | Bukan `rum` yang dipanggil langsung. `pkexec` yang minta otorisasi ke polkit agent sistem, jadi password tidak pernah masuk ke proses picker. Kegagalan instalasi membatalkan switch, bukan melanjutkan setengah jalan. |
+| Mengganti config milik shell itu sendiri | Hanya setelah backup tersimpan dan bisa dibaca ulang. Ganti, bukan menimpa buta: config lama ada di backup dan dikembalikan lewat copy-paste manual. |
+| Mematikan autostart shell sebelumnya | Supaya tidak ada dua shell hidup. Paketnya dibiarkan supaya switch-back selalu mungkin. |
+
+| Tidak | Alasannya |
+|---|---|
+| Uninstall di dalam alur switch | Shell yang sudah di-uninstall tidak bisa di-switch-back. Uninstall jadi tindakan terpisah dengan tombol dan konfirmasi sendiri, bukan efek samping dari switch. |
+| Mengganti config compositor | `~/.config/hypr/` milik user dan tidak pernah ditulis ulang. Picker hanya menulis ke file miliknya sendiri. |
+| `rm -rf` config tanpa backup yang terbukti tersimpan | Backup yang gagal membatalkan switch. Tidak ada kondisi di mana config hilang dan switch tetap jalan. |
+
+### Tombol uninstall
+
+Terpisah dari switch, di card masing-masing shell, dengan konfirmasi sendiri.
+Salah klik berarti kehilangan shell, dan itu tidak bisa di-rollback.
+
+Untuk Noctalia tombolnya mati. Dia ada di base image yang read-only, jadi
+`rum remove` akan menolaknya; tombol yang selalu gagal lebih buruk daripada
+tidak ada.
+
+`rum remove` tidak uninstall dependency yang masih dipakai paket lain. Sisa
+begitu adalah kandidat `rum autoremove`, dan itu ditawarkan sebagai pilihan
+tersendiri, bukan dijalankan diam-diam.
+
+## Skel: mana yang diganti, mana yang dipecah
+
+Bentuk skel tidak seragam, dan tidak bisa seragam karena ada dua pemilik
+config yang berbeda:
+
+| Dipasang penuh | Dipasang sebagai fragment |
+|---|---|
+| `~/.config/<shell>/` | `~/.config/hypr/` |
+| `~/.config/gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct` | `~/.config/uwsm/env` |
+
+Alasannya, `~/.config/hypr/` adalah milik user. Jejak sebuah shell di sana
+tersebar di beberapa file sekaligus — untuk Noctalia ada di `hyprland.lua`,
+`config/autostart.lua`, `config/binds.lua`, `config/lid.lua`,
+`config/windowrules.lua`, dan `scripts/lock-and-suspend.sh`. Menyalin direktori
+ini secara utuh tidak akan menghapus "jejak noctalia"; ia akan menghapus seluruh
+konfigurasi user, termasuk yang tidak ada hubungannya dengan shell.
+
+Jadi picker hanya menulis file milik sendiri, dan kalau autostart perlu diubah,
+perubahannya dilakukan satu kali lewat file shim yang membaca `state.toml`. Sesudah
+itu, ganti shell tidak pernah menyentuh Lua milik user lagi.
+
+Bentuk direktori:
+
+```
+src/compositor/hyprland/skel/
+  noctalia/  dms/  caelestia/  ambxst/
+    shell/        -> ~/.config/<shell>/      dipasang penuh
+    hypr.d/       -> file milik picker       dipasang sebagai fragment
+    uwsm.d/       -> baris env untuk uwsm    dipasang sebagai fragment
+```
+
+Tidak semua shell punya default config untuk disalin. Noctalia tidak mengirim
+satu pun, dia membuat `~/.config/noctalia/config.toml` sendiri saat pertama
+jalan. Karena itu tiap shell perlu ditandai: salin dari skel, atau biarkan
+shell yang membuat default-nya sendiri.
+## Me-restart compositor bukan cara ganti shell
+
+Compositor tidak mengenal shell. `hyprctl reload` hanya membaca ulang
+konfigurasi; tidak menjalankan shell apa pun. Jadi "reload lalu otomatis
+berganti" bukan mekanisme yang benar — digantungkan begitu saja, tidak akan
+pernah terjadi.
+
+Shell harus dihentikan dan dijalankan ulang oleh picker sendiri, sementara
+compositor dibiarkan terus berjalan. Ini aturan 2 di atas, dan tidak ada
+pengecualian untuk hal ini.
 
 ## Lokasi backup
 
