@@ -11,7 +11,6 @@ use libadwaita::{AlertDialog, ApplicationWindow, ResponseAppearance};
 
 use crate::compositor::{Compositor, Detection};
 use crate::shell::Shell;
-use crate::ui::log;
 
 /// What a click on a shell card means.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,12 +187,7 @@ pub fn confirm_switch(
 /// panel must not light up because the user clicked something the app was never
 /// going to do. Only the confirmed switch opens the panel, because from there
 /// on steps are actually being taken.
-pub fn present(
-    parent: &ApplicationWindow,
-    action: Action,
-    view: &gtk4::TextView,
-    panel: &gtk4::Revealer,
-) {
+pub fn present(parent: &ApplicationWindow, action: Action) {
     match action {
         Action::RefuseCrossCompositor { target, current } => {
             crate::logging::info(&format!(
@@ -214,18 +208,12 @@ pub fn present(
             not_installed(parent, &shell);
         }
         Action::ConfirmSwitch { from, to } => {
-            // GObjects, so handing owned clones to the closure keeps them alive
-            // without borrowing the caller's references.
-            let view = view.clone();
-            let panel = panel.clone();
             confirm_switch(parent, from.as_deref(), to, move || {
-                log::step(&view, &panel, &format!("switch requested: {to}"));
-                log::step(
-                    &view,
-                    &panel,
-                    "backend not implemented yet, nothing was changed",
-                );
-                log::succeeded(&panel);
+                // No backend yet, so there is no operation to report and the
+                // panel stays hidden. Opening it here would be a lie: the panel
+                // means steps are being taken.
+                crate::logging::info(&format!("switch requested: {to}"));
+                crate::logging::info("backend not implemented yet, nothing was changed");
             });
         }
     }

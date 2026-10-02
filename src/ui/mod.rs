@@ -66,6 +66,15 @@ impl Selection {
         });
     }
 
+    /// Undo any pending selection. Used when a click ends in a refusal or a
+    /// cancel: a card left selected suggests a switch is waiting to happen.
+    fn clear_highlight(&mut self) {
+        for item in self.items.iter() {
+            item.button.set_active(false);
+            item.label.remove_css_class("selected");
+        }
+    }
+
     /// Single-selection: clear every other card, then mark this one.
     fn highlight(&mut self, shell_id: &str) {
         for item in self.items.iter() {
@@ -105,13 +114,16 @@ impl Selection {
         compositor: &'static dyn Compositor,
         shell: &'static crate::shell::Shell,
     ) {
-        self.highlight(shell.id);
-
         let action = dialog::decide(&self.detection, compositor, shell);
+        match action {
+            dialog::Action::ConfirmSwitch { .. } => self.highlight(shell.id),
+            _ => self.clear_highlight(),
+        }
+
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        dialog::present(&window, action, &self.log, &self.panel);
+        dialog::present(&window, action);
     }
 
     /// The niri page and any other non-running compositor: cards are inert, but

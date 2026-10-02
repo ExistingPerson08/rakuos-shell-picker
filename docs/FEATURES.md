@@ -27,13 +27,14 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | B8 | Panel log 100px di bawah, monospace, scroll sendiri | selesai |
 | B13 | Status `running` diberi warna hijau | selesai |
 | B14 | Label aksi berbunyi "switch", bukan "install" | selesai |
-| B15 | Panel log hanya tampil saat ada operasi, hidden saat idle | belum |
-| B16 | Panel log gagal tetap tampil sampai ditutup + badge di card | belum |
+| B15 | Panel log hanya tampil saat ada operasi, hidden saat idle | selesai |
+| B16 | Panel log gagal tetap tampil sampai ditutup | selesai (badge di card belum) |
 | B17 | Halaman compositor yang tidak sedang jalan menampilkan banner + penolakan saat diklik | selesai |
 | B9 | Placeholder "Coming soon" untuk compositor tanpa shell | selesai |
 | B10 | Kartu `unavailable` untuk shell yang belum terpasang | selesai |
 | B11 | Dialog konfirmasi Yes/No sebelum apply | selesai (UI; eksekusi menyusul) |
 | B12 | Tombol Refresh / Install | belum |
+| B18 | Kanal log terpisah: file aplikasi + panel UI (bukan satu panel untuk semua) | selesai |
 
 ## C. Deteksi
 

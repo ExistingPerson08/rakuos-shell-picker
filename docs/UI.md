@@ -106,6 +106,9 @@ memindah shell yang sedang berjalan, bukan memasang paket:
   non-interaktif. Mengkliknya membuka dialog penolakan, karena card yang dibuat
   mati hanya terlihat rusak.
 - Single-selection: memilih satu kartu mematikan yang lain.
+- Sorotan hanya menempel kalau hasilnya `Confirm switch`. Kalau ditolak atau
+  user menekan Cancel, sorotan dilepas, supaya tidak terlihat seperti ada
+  switch yang tertunda.
 - Card yang gagal dapat class CSS `failed` sampai operasi berikutnya.
 
 ## Dialog safety
@@ -165,18 +168,24 @@ Teks banner dan teks placeholder keduanya dibangun dari
 
 - **Tersembunyi saat idle.** Tidak pernah menampilkan versi aplikasi atau
   daftar shell; itu isi log aplikasi, bukan panel UI.
-- Tampil hanya saat ada operasi berjalan.
-- Sukses → langsung tersembunyi.
-- Gagal → **tetap tampil sampai ditutup**, plus badge di card yang gagal, lalu
-  detailnya ditulis ke file log gagal.
+- Panel dibungkus `gtk::Revealer` dengan `reveal_child = false` sejak awal.
+- Hanya tiga pemanggil yang boleh membukanya: `log::step()`, `log::failed()`,
+  `log::succeeded()`. Semua penolakan guard dan "no-op" masuk ke log aplikasi
+  lewat `crate::logging`, jadi panel tidak pernah menyala karena user sekadar
+  menjelajah.
+- Sukses → langsung tersembunyi lagi.
+- Gagal → **tetap tampil sampai ditutup** user lewat tombol `✕` di header,
+  sehingga alasan gagal tidak hilang sendiri.
 - Tinggi tetap 100px, melekat di bawah.
+- Header berisi judul `Progress` dan tombol tutup.
 - `gtk::ScrolledWindow` dengan policy horizontal `Never`, vertikal
   `Automatic`.
 - Font monospace, read-only, tanpa cursor.
 - Ditulis dengan `buffer.insert` di `end_iter`, satu baris per panggilan.
-- `log::panel()` mengembalikan **frame**-nya, bukan scroller di dalamnya.
-  Versi lama mengembalikan scroller sehingga styling `.log-frame` tidak pernah
-  terpakai.
+- `log::panel()` mengembalikan **`Revealer`**. Versi lama mengembalikan
+  `ScrolledWindow` di dalam frame sehingga styling `.log-frame` tidak pernah
+  terpakai, dan versi sebelum itu selalu terlihat karena tidak ada cara
+  menyembunyikannya.
 
 ## Palet
 
