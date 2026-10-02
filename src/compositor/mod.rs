@@ -71,8 +71,18 @@ pub fn all() -> Vec<&'static dyn Compositor> {
 }
 
 /// The tab shown when the app opens.
-pub fn default_id() -> &'static str {
-    HYPRLAND.id()
+///
+/// The running compositor's tab, never a fixed one. Opening on a blocked page
+/// would greet a Niri user with a yellow refusal and no hint that the other tab
+/// was the usable one. Falls back to the first registered compositor when
+/// nothing is detected, because a tab still has to be selected.
+pub fn default_id(detection: &Detection) -> &'static str {
+    if let Some(current) = detection.current {
+        if all().iter().any(|c| c.id() == current) {
+            return current;
+        }
+    }
+    all()[0].id()
 }
 
 /// Is there a Wayland session we can trust?

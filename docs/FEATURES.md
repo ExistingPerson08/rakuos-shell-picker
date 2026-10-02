@@ -19,7 +19,7 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 |---|---|---|
 | B1 | Window persegi 806×806, float, rule Hyprland | selesai |
 | B2 | Tema gelap, panel semi-transparan, outline 1px | selesai |
-| B3 | Tab compositor (Hyprland / Niri) dari registry | selesai |
+| B3 | Tab compositor (Hyprland / Niri) dari registry, tab awal = compositor yang jalan | selesai |
 | B4 | Grid 4 kolom, lebar kartu dipatok 150px | selesai |
 | B5 | Grid scroll vertikal, lebar terkunci (aman 20+ shell) | selesai |
 | B6 | Logo SVG langsung via GdkTexture, tanpa PNG | selesai |

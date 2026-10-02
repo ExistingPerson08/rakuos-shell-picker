@@ -16,11 +16,14 @@ pub fn build(stack: &gtk4::Stack, shared: &Shared) -> GtkBox {
 
     let tabs: Rc<RefCell<Vec<(&'static str, ToggleButton)>>> = Rc::new(RefCell::new(Vec::new()));
 
-    for (idx, compositor) in compositor::all().into_iter().enumerate() {
+    let default = crate::compositor::default_id(&shared.borrow().detection().clone());
+
+    for compositor in compositor::all() {
         let tab = ToggleButton::new();
         tab.set_label(compositor.label());
         tab.add_css_class("tab");
-        if idx == 0 {
+        // The running compositor's tab, not simply the first one.
+        if compositor.id() == default {
             tab.set_active(true);
             tab.add_css_class("active");
         }

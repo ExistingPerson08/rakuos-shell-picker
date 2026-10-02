@@ -33,6 +33,25 @@ image, dan itu urusan **"RakuOS system management"**, bukan aplikasi ini.
 Jadi saat user berada di Hyprland dan mengklik tab Niri, semua aksi di tab itu
 harus **ditolak**, bukan dijalankan lalu gagal setengah jalan.
 
+### Guard tidak punya arah
+
+Penolakan ini **simetris**. Kalau user nanti berada di Niri, tab Hyprland yang
+menjadi yang ditolak, dengan alasannya terbalik: "hyprland is not the running
+compositor — niri is". Tidak ada kode yang menyebut Hyprland sebagai pihak yang
+berwenang.
+
+Aturannya satu perbandingan: `detection.current != compositor.id()`. Karena itu
+menambah compositor ketiga tidak perlu menyentuh logika guard sama sekali.
+
+App juga membuka tab compositor yang sedang jalan, bukan tab pertama. Kalau tidak,
+user Niri akan dibuka ke halaman Hyprland yang ditolak, dengan banner kuning dan
+tanpa petunjuk bahwa tab sebelahnya yang bisa dipakai.
+
+Kedua arah ini diuji (`the_guard_works_in_both_directions`,
+`the_running_compositor_is_the_only_one_that_offers_a_switch`,
+`the_app_opens_on_the_running_compositors_tab`), jadi kalau suatu saat guard
+diubah jadi satu arah, testnya gagal.
+
 ### Cara menentukan compositor yang jalan
 
 Envvar khusus compositor, yang paling bisa dipercaya:

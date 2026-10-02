@@ -192,7 +192,7 @@ impl Picker {
         for compositor in compositor::all() {
             stack.add_named(&grid::build(compositor, &shared), Some(compositor.id()));
         }
-        stack.set_visible_child_name(compositor::default_id());
+        stack.set_visible_child_name(compositor::default_id(&detection));
 
         let root = GtkBox::new(Orientation::Vertical, 0);
         root.add_css_class("picker-root");
