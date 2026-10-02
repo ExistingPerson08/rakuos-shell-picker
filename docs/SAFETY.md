@@ -20,6 +20,61 @@ dipertahankan, bukan aturannya yang dilonggarkan.
 5. **Tidak menjalankan `kill -9` sebagai cara normal.** Shell harus diberi
    kesempatan berhenti rapi; `kill -9` hanya boleh jadi jalan keluar terakhir
    setelah timeout.
+6. **Tidak pernah menyalakan shell milik compositor lain.** Lihat
+   [Deteksi dan Guard](#deteksi-dan-guard) di bawah.
+7. **Tidak pernah menebak compositor yang sedang jalan.** Kalau tidak
+   terdeteksi, tidak ada switch sama sekali.
+
+## Deteksi dan Guard
+
+Compositor tidak berganti lewat picker. Mengganti compositor berarti mengganti
+image, dan itu urusan **rakuos system management**, bukan aplikasi ini.
+
+Jadi saat user berada di Hyprland dan mengklik tab Niri, semua aksi di tab itu
+harus **ditolak**, bukan dijalankan lalu gagal setengah jalan.
+
+### Cara menentukan compositor yang jalan
+
+Envvar khusus compositor, yang paling bisa dipercaya:
+
+| Compositor | Penanda | Andal |
+|---|---|---|
+| Hyprland | `HYPRLAND_INSTANCE_SIGNATURE` terisi | ya |
+| Niri | `NIRI_SOCKET` ada dan socket-nya bisa dibuka | ya |
+| Sway | `SWAYSOCK` | ya |
+
+Ditambah pemeriksaan dasar yang wajib lolos dulu: `WAYLAND_DISPLAY` dan
+`XDG_RUNTIME_DIR` terisi.
+
+`XDG_CURRENT_DESKTOP` **tidak boleh dipakai** untuk guard — nilainya bisa
+dikarang user, sehingga tidak layak jadi dasar keputusan keselamatan.
+
+Kalau penanda khusus tidak ada, urutannya: cek `WAYLAND_DISPLAY` (namanya
+kadang memuat compositor), lalu scan `/proc/*/exe`. Envvar tetap cara utama.
+
+### Kalau tidak terdeteksi
+
+Tidak terdeteksi berarti picker dijalankan di luar sesi Wayland yang bisa
+diandalkan. Dalam keadaan ini: **tolak semua switch**, tampilkan peringatan,
+jangan menebak. Menjalankan shell yang salah lebih buruk daripada tidak
+menjalankan apa pun.
+
+### Dua lapis pertahanan
+
+| Lapis | Wajib | Tanggung jawab |
+|---|---|---|
+| UI | ya | Card untuk compositor yang tidak sedang jalan diberi class `disabled`, tidak bisa diklik, ada badge penjelas |
+| Backend | **ya** | `preflight()` menolak dengan alasan yang jelas |
+
+UI saja tidak cukup — guard bisa dilewati. Backend yang benar-benar menegakkan
+aturan; UI cuma supaya user tidak dicoba-coba.
+
+Pesan penolakan yang dipakai:
+
+```
+niri is not the running compositor (hyprland is).
+Switching compositor means switching image — use rakuos system management.
+```
 
 ## Wajib: backup sebelum switch
 
@@ -81,6 +136,15 @@ Rollback berarti: kembalikan backup ke tempat asalnya, start lagi shell lama,
 tandai entri backup sebagai `rolled_back`, catat kejadian di log. Membatalkan
 rollback butuh alasan yang eksplisit dari user.
 
+## Logging saat gagal
+
+Detail kegagalan ditulis ke file terpisah, bukan ke panel UI supaya tetap bisa
+dibaca setelah app ditutup. Aturan lengkapnya ada di [LOGGING.md](LOGGING.md).
+
+Yang dicatat: `preflight`, `backup`, `stop`, `start`, `verify`, `state`.
+Yang **tidak** dicatat sebagai kegagalan: guard yang ditolak dari awal, dan
+shell yang memang belum terpasang — keduanya sudah terlihat lewat badge di card.
+
 ## State file
 
 `~/.local/state/rakuos/shell-picker/state.toml`
@@ -94,9 +158,16 @@ rollback butuh alasan yang eksplisit dari user.
 
 ## Yang perlu ditambahkan sebelum backend hidup
 
-- [ ] Test untuk `metadata.toml`: timestamp, `outcome`, nama shell.
+- [ ] Test `detect_compositor()` untuk tiap compositor: envvar terisi, kosong,
+      dan socket yang tidak bisa dibuka.
+- [ ] Test penolakan guard: compositor terdeteksi A, lalu backend untuk B
+      dipanggil — harus menolak, dan tidak boleh menyentuh apa pun.
+- [ ] Test `metadata.toml`: timestamp, `outcome`, nama shell.
 - [ ] Test yang membuktikan config asli masih utuh setelah backup.
 - [ ] Test rollback dengan target yang dijamin gagal start.
 - [ ] Deteksi "shell lain yang jalan di luar daftar kita" sebelum switch, supaya
       picker tidak diam-diam menyalakan shell kedua.
 - [ ] Batas waktu untuk stop/start, supaya tidak menggantung selamanya.
+- [ ] Test rotasi log gagal: lebih dari 10 file, yang tertua dipangkas, backup
+      konfigurasi **tidak** ikut terpangkas.
+

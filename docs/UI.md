@@ -88,10 +88,21 @@ Diverifikasi dengan 4 / 12 / 20 kartu (lebar tetap 702px, tinggi 166 / 566 /
 
 Isi: kotak logo 100×100, nama, status.
 
-- Status: `running` / `installed` / `not installed`.
-- Shell yang belum terpasang dapat class CSS `unavailable` (diredupkan).
+Status memakai **kata kerja "switch"**, bukan "install" — karena aksi utamanya
+memindah shell yang sedang berjalan, bukan memasang paket:
+
+| Keadaan | Label | Warna |
+|---|---|---|
+| Proses hidup | `running` | **hijau** |
+| Terpasang, tidak jalan | `switch` | netral |
+| Belum terpasang | `switch` + badge `not installed` | diredupkan |
+| Compositornya tidak sedang jalan | badge `not the running compositor` | diredupkan + non-interaktif |
+
+- Shell yang belum terpasang dapat class CSS `unavailable`.
+- Card milik compositor yang tidak sedang jalan dapat class CSS `disabled`:
+  tidak bisa diklik, hover tidak berubah, ada badge penjelas.
 - Single-selection: memilih satu kartu mematikan yang lain.
-- Nama aktif dapat class CSS `selected`.
+- Card yang gagal dapat class CSS `failed` sampai operasi berikutnya.
 
 ## Tab compositor
 
@@ -118,6 +129,12 @@ Teks dibuat dari `Compositor::id()`, bukan ditulis manual per compositor.
 
 ## Panel log
 
+- **Tersembunyi saat idle.** Tidak pernah menampilkan versi aplikasi atau
+  daftar shell; itu isi log aplikasi, bukan panel UI.
+- Tampil hanya saat ada operasi berjalan.
+- Sukses → langsung tersembunyi.
+- Gagal → **tetap tampil sampai ditutup**, plus badge di card yang gagal, lalu
+  detailnya ditulis ke file log gagal.
 - Tinggi tetap 100px, melekat di bawah.
 - `gtk::ScrolledWindow` dengan policy horizontal `Never`, vertikal
   `Automatic`.
@@ -138,6 +155,9 @@ Teks dibuat dari `Compositor::id()`, bukan ditulis manual per compositor.
 | Teks | `#e8eaf0` |
 | Teks redup | `#9aa1b1` |
 | Aksen | `#7aa2f7` |
+| Sukses / `running` | `#9ece6a` |
+| Galat / `failed` | `#f7768e` |
+| Nonaktif | `#565f89` |
 
 Semua warna lewat class CSS di `src/style.css`.
 

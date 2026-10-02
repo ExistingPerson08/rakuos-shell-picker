@@ -25,6 +25,11 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | B6 | Logo SVG langsung via GdkTexture, tanpa PNG | selesai |
 | B7 | Logo & label center, nama panjang di-ellipsize | selesai |
 | B8 | Panel log 100px di bawah, monospace, scroll sendiri | selesai |
+| B13 | Status `running` diberi warna hijau | belum |
+| B14 | Label aksi berbunyi "switch", bukan "install" | belum |
+| B15 | Panel log hanya tampil saat ada operasi, hidden saat idle | belum |
+| B16 | Panel log gagal tetap tampil sampai ditutup + badge di card | belum |
+| B17 | Card untuk compositor yang tidak sedang jalan di-disable | belum |
 | B9 | Placeholder "Coming soon" untuk compositor tanpa shell | selesai |
 | B10 | Kartu `unavailable` untuk shell yang belum terpasang | selesai |
 | B11 | Konfirmasi sebelum apply | belum |
@@ -39,6 +44,10 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | C3 | Proses sedang jalan (scan `/proc/*/comm`) | selesai |
 | C4 | Status `running` / `installed` / `not installed` di kartu | selesai |
 | C5 | Health probe per shell (socket/API) | belum |
+| C6 | Deteksi compositor aktif dari envvar (`HYPRLAND_INSTANCE_SIGNATURE`, `NIRI_SOCKET`) | belum |
+| C7 | Deteksi sesi Wayland (`WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`) | belum |
+| C8 | Fallback deteksi lewat `/proc/*/exe` | belum |
+| C9 | Tolak semua aksi kalau compositor tidak terdeteksi | belum |
 
 ## D. State
 
@@ -69,12 +78,29 @@ Ini inti dari proyek, dan sengaja ditahan sampai UI dikunci.
 | E10 | Deteksi shell yang jalan tanpa lewat daftar kita | belum |
 | E11 | Registry shell untuk Niri | belum |
 | E12 | Cek environment sebelum switch (display, Wayland) | belum |
+| E13 | Guard di backend: `preflight()` menolak cross-compositor | belum |
+
+## G. Logging
+
+Spesifikasi lengkap di [LOGGING.md](LOGGING.md).
+
+| # | Fitur | Status |
+|---|---|---|
+| G1 | Log aplikasi ke `XDG_RUNTIME_DIR`, 0600, dipotong tiap start | belum |
+| G2 | Fallback `/tmp/rakuos-shell-picker-$UID/` mode 0700 | belum |
+| G3 | Log gagal per waktu di `state/logs/<shell>/<timestamp>.log`, 0600 | belum |
+| G4 | Tidak ada log file saat switch sukses | belum |
+| G5 | Rotasi 10 kegagalan terakhir per shell | belum |
+| G6 | `operation_id` mengorelasikan 3 saluran log | belum |
+| G7 | `metadata.toml` per kegagalan | belum |
+| G8 | Larangan: jangan pernah tulis isi config atau token ke log | belum |
 
 ## Keluar scope
 
 | Item | Alasan |
 |---|---|
-| Mengganti compositor (Hyprland → Niri) | Untuk ini seharusnya pakai TTY/session manager, bukan picker |
+| Mengganti compositor (Hyprland → Niri) | Berarti ganti image; urusan rakuos system management. Ditolak oleh guard, lihat [SAFETY.md](SAFETY.md) |
+| Installer paket | Paket datang dari image; picker tidak memanggil dnf |
 | Installer paket | Paket datang dari image; picker tidak memanggil yum/dnf |
 | Mengedit isi konfigurasi | Picker memilih, bukan editor |
 | Window manager-style tiling | Bukan WM, dan WM yang memegang layout |
@@ -85,14 +111,16 @@ Ini inti dari proyek, dan sengaja ditahan sampai UI dikunci.
 Urutan pengerjaan:
 
 1. **Kunci UI.** Setuju dengan tampilan; inisialisasi git; commit. Supaya semua
-   perubahan backend nanti punya titik balik yang jelas.
-2. **`ShellBackend`.** trait + implementasi Noctalia duluan sebagai contoh.
-   Semua backend berikutnya mengikuti pola yang sama.
-3. **Backup + rollback.** Ini yang pertama, sebelum ada switch sama sekali. Lihat
+   perubahan backend nanti punya titik balik yang jelas. *(selesai)*
+2. **Deteksi + guard.** `Compositor::is_running()`, `compositor::current()`,
+   penolakan cross-compositor di UI **dan** di `preflight()`.
+3. **Logging.** Tiga saluran sesuai [LOGGING.md](LOGGING.md), panel on-demand.
+4. **Backup + rollback.** Ini duluan, sebelum ada switch sama sekali, supaya
+   tidak ada kode yang bisa merusak sebelum ada jaring pengaman. Lihat
    [SAFETY.md](SAFETY.md).
-4. **Switch end-to-end.** Stop → start → verifikasi → tulis state. Uji dengan
+5. **Switch end-to-end.** Stop → start → verifikasi → tulis state. Uji dengan
    DMS karena itu satu-satunya yang terpasang di mesin ini.
-5. **Niri.** Registri shell terpisah, dari nol.
+6. **Niri.** Registri shell terpisah, dari nol.
 
 ## Syarat "selesai" per fitur
 

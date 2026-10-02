@@ -56,6 +56,7 @@ Aturan singkat: **menambah shell tidak boleh menyentuh `ui/`**. Detailnya di
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | struktur modul & aturan dependensi |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | toolchain, dependency, pemeriksaan environment |
 | [docs/FEATURES.md](docs/FEATURES.md) | fitur, status, syarat selesai |
+| [docs/LOGGING.md](docs/LOGGING.md) | tiga saluran log, lokasi, format, rotasi |
 | [docs/SAFETY.md](docs/SAFETY.md) | jaminan backup & rollback |
 | [docs/UI.md](docs/UI.md) | spesifikasi layout & angka tetap |
 
