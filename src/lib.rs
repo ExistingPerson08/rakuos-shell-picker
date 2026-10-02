@@ -16,6 +16,7 @@
 //!       noctalia.rs  dms.rs  caelestia.rs  ambxst.rs
 //!   niri/          Niri-specific tooling
 //! src/shell.rs     the Shell type and how to inspect one
+//! src/logging.rs   channel 1: the application log file
 //! src/session.rs   active/previous shell state under XDG
 //! ```
 //!
@@ -24,6 +25,7 @@
 
 pub mod app;
 pub mod compositor;
+pub mod logging;
 pub mod session;
 pub mod shell;
 pub mod ui;

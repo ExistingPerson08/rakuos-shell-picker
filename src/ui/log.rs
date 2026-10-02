@@ -1,12 +1,14 @@
-//! The log panel pinned to the bottom of the window, plus writing to it.
+//! Channel 2 of docs/LOGGING.md: the log panel inside the window.
 //!
-//! The panel is for progress during an operation. Inventory and version detail
-//! belong to the application log, not here; see docs/LOGGING.md.
+//! The panel is not a console. It shows the steps of an operation while one is
+//! running, and nothing else: no version banner, no inventory, no record of the
+//! user browsing around. Those go to the application log instead, so that a
+//! panel that is visible always means "something is happening".
 
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Orientation, TextView};
+use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, Revealer, TextView};
 
-use crate::compositor::Detection;
+use crate::logging;
 
 /// Fixed height for the log panel at the bottom of the window.
 pub const LOG_HEIGHT: i32 = 100;
@@ -20,12 +22,24 @@ pub fn build() -> TextView {
     view
 }
 
-/// The bordered container. Returned as a Box on purpose: an earlier version
-/// returned the inner scroller, which silently dropped all of this styling.
-pub fn panel(log: &TextView) -> GtkBox {
-    let frame = GtkBox::new(Orientation::Vertical, 0);
-    frame.add_css_class("log-frame");
-    frame.set_size_request(-1, LOG_HEIGHT);
+/// The panel: a header with a title and a close button, over the text view.
+///
+/// Returned as a `Revealer` so the whole thing can be hidden while idle. An
+/// earlier version returned the inner scroller, which silently dropped all of
+/// the styling, and the panel was always visible.
+pub fn panel(log: &TextView) -> Revealer {
+    let title = Label::new(Some("Progress"));
+    title.add_css_class("log-title");
+    title.set_hexpand(true);
+    title.set_halign(Align::Start);
+
+    let close = Button::from_icon_name("window-close-symbolic");
+    close.add_css_class("log-close");
+    close.set_tooltip_text(Some("Hide this panel"));
+
+    let header = GtkBox::new(Orientation::Horizontal, 8);
+    header.append(&title);
+    header.append(&close);
 
     let scroller = gtk4::ScrolledWindow::builder()
         .child(log)
@@ -36,36 +50,54 @@ pub fn panel(log: &TextView) -> GtkBox {
     scroller.set_propagate_natural_width(false);
     scroller.set_propagate_natural_height(false);
 
+    let frame = GtkBox::new(Orientation::Vertical, 0);
+    frame.add_css_class("log-frame");
+    frame.set_size_request(-1, LOG_HEIGHT);
+    frame.append(&header);
     frame.append(&scroller);
-    frame
+
+    let revealer = Revealer::new();
+    revealer.set_child(Some(&frame));
+    // Idle means hidden. A panel that is always on screen is a second console,
+    // which is what this was before.
+    revealer.set_reveal_child(false);
+
+    // Only for the failure case: a reason must not vanish on its own.
+    let dismissable = revealer.clone();
+    close.connect_clicked(move |_| {
+        dismissable.set_reveal_child(false);
+    });
+
+    revealer
 }
 
-pub fn write(log: &TextView, line: &str) {
+fn append(log: &TextView, line: &str) {
     let buffer = log.buffer();
     let mut end = buffer.end_iter();
     buffer.insert(&mut end, line);
     buffer.insert(&mut end, "\n");
 }
 
-/// Opening summary. Kept short on purpose: this is a status line, not the
-/// application log. The full inventory goes to the log file.
-pub fn startup(log: &TextView, detection: &Detection) {
-    write(log, "rakuos-shell-picker 0.1.0");
+/// One step of a running operation: application log **and** panel.
+///
+/// Anything that is not a step of an operation must use `crate::logging`
+/// directly, so it stays out of the panel.
+pub fn step(log: &TextView, revealer: &Revealer, line: &str) {
+    logging::info(line);
+    append(log, line);
+    revealer.set_reveal_child(true);
+}
 
-    match detection.current {
-        Some(id) => write(log, &format!("running compositor: {id}")),
-        None => write(
-            log,
-            &detection
-                .refusal()
-                .unwrap_or_else(|| "compositor not identified".to_string()),
-        ),
-    }
+/// The operation finished. The panel goes away again, because there is nothing
+/// left to report.
+pub fn succeeded(revealer: &Revealer) {
+    revealer.set_reveal_child(false);
+}
 
-    let registered: usize = crate::compositor::all()
-        .iter()
-        .map(|c| c.shells().len())
-        .sum();
-    write(log, &format!("{registered} shells registered"));
-    write(log, "select a shell card to switch");
+/// The operation failed. The panel stays until the user closes it, because a
+/// failure that disappears on its own is a failure the user never learns about.
+pub fn failed(log: &TextView, revealer: &Revealer, line: &str) {
+    logging::error(line);
+    append(log, line);
+    revealer.set_reveal_child(true);
 }

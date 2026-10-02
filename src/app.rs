@@ -13,7 +13,15 @@ const DEFAULT_SIZE: i32 = 800;
 pub fn run() -> gtk4::glib::ExitCode {
     let app = Application::builder().application_id(APP_ID).build();
 
-    app.connect_startup(|_| load_css());
+    app.connect_startup(|_| {
+        load_css();
+        // Channel 1 opens before anything else runs, so a crash during startup
+        // still leaves a log behind.
+        match crate::logging::init() {
+            Some(path) => crate::logging::info(&format!("log file: {}", path.display())),
+            None => eprintln!("warning: no writable log location"),
+        }
+    });
 
     app.connect_activate(|app| {
         if let Some(window) = app.active_window() {

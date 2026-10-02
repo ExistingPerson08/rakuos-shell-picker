@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Label, Orientation, TextView, ToggleButton};
+use gtk4::{Box as GtkBox, Label, Orientation, Revealer, TextView, ToggleButton};
 use libadwaita::ApplicationWindow;
 
 use crate::compositor::{self, Compositor, Detection};
@@ -34,6 +34,7 @@ struct Item {
 /// State shared by the tab bar and every card.
 pub struct Selection {
     log: TextView,
+    panel: Revealer,
     items: Vec<Item>,
     detection: Detection,
     /// Weak, because the window owns this widget: a strong reference would make
@@ -42,9 +43,15 @@ pub struct Selection {
 }
 
 impl Selection {
-    pub fn new(log: TextView, detection: Detection, window: &Rc<ApplicationWindow>) -> Self {
+    pub fn new(
+        log: TextView,
+        panel: Revealer,
+        detection: Detection,
+        window: &Rc<ApplicationWindow>,
+    ) -> Self {
         Self {
             log,
+            panel,
             items: Vec::new(),
             detection,
             window: window.downgrade(),
@@ -72,8 +79,20 @@ impl Selection {
         }
     }
 
-    pub fn write(&self, line: &str) {
-        log::write(&self.log, line);
+    /// Browsing, inventory, refusals. Application log only: a panel that shows
+    /// these is a second console instead of a progress indicator.
+    pub fn note(&self, line: &str) {
+        crate::logging::info(line);
+    }
+
+    /// One step of a running operation. Both channels, and the panel is shown.
+    pub fn progress(&self, line: &str) {
+        log::step(&self.log, &self.panel, line);
+    }
+
+    /// Something failed: the panel stays until the user closes it.
+    pub fn failed(&self, line: &str) {
+        log::failed(&self.log, &self.panel, line);
     }
 
     pub fn detection(&self) -> &Detection {
@@ -92,7 +111,7 @@ impl Selection {
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        dialog::present(&window, action, &self.log);
+        dialog::present(&window, action, &self.log, &self.panel);
     }
 
     /// The niri page and any other non-running compositor: cards are inert, but
@@ -118,7 +137,7 @@ impl Selection {
         let reason = self
             .guard_reason(compositor)
             .unwrap_or_else(|| "refused: nothing to switch to.".to_string());
-        self.write(&format!("refused: {reason}"));
+        self.note(&format!("refused: {reason}"));
 
         let Some(window) = self.window.upgrade() else {
             return;
@@ -139,14 +158,19 @@ pub struct Picker {
 impl Picker {
     pub fn new(window: &Rc<ApplicationWindow>) -> Self {
         let log = log::build();
+        let panel = log::panel(&log);
         let detection = compositor::detect();
+
+        // Version, compositor and inventory belong to the application log. The
+        // panel stays hidden until an operation actually starts.
+        crate::logging::startup(&detection);
+
         let shared: Shared = Rc::new(RefCell::new(Selection::new(
             log.clone(),
+            panel.clone(),
             detection.clone(),
             window,
         )));
-
-        log::startup(&log, &detection);
 
         // One tab per compositor, one page per compositor, straight from the
         // registry. Registering a shell touches no UI file.
@@ -162,7 +186,7 @@ impl Picker {
         root.add_css_class("picker-root");
         root.append(&tabbar::build(&stack, &shared));
         root.append(&stack);
-        root.append(&log::panel(&log));
+        root.append(&panel);
 
         Self { root }
     }

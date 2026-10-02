@@ -182,41 +182,50 @@ pub fn confirm_switch(
     dialog.present(Some(parent));
 }
 
-/// Show `action` to the user and return whether it ended in a confirmed switch.
-pub fn present(parent: &ApplicationWindow, action: Action, view: &gtk4::TextView) {
+/// Show `action` to the user.
+///
+/// Refusals are not operations, so they go to the application log only: the
+/// panel must not light up because the user clicked something the app was never
+/// going to do. Only the confirmed switch opens the panel, because from there
+/// on steps are actually being taken.
+pub fn present(
+    parent: &ApplicationWindow,
+    action: Action,
+    view: &gtk4::TextView,
+    panel: &gtk4::Revealer,
+) {
     match action {
         Action::RefuseCrossCompositor { target, current } => {
-            log::write(
-                view,
-                &format!("refused: {target} is not the running compositor ({current} is)"),
-            );
+            crate::logging::info(&format!(
+                "refused: {target} is not the running compositor ({current} is)"
+            ));
             refuse_cross_compositor(parent, target, current);
         }
         Action::RefuseUndetected { reason } => {
-            log::write(view, &format!("refused: {reason}"));
+            crate::logging::info(&format!("refused: {reason}"));
             refuse_undetected(parent, &reason);
         }
         Action::AlreadyRunning { shell } => {
-            log::write(view, &format!("no-op: {shell} is already running"));
+            crate::logging::info(&format!("no-op: {shell} is already running"));
             already_running(parent, &shell);
         }
         Action::NotInstalled { shell } => {
-            log::write(view, &format!("no-op: {shell} is not installed"));
+            crate::logging::info(&format!("no-op: {shell} is not installed"));
             not_installed(parent, &shell);
         }
         Action::ConfirmSwitch { from, to } => {
-            log::write(view, &format!("switch requested: {to}"));
-            // The view is a GObject, so handing an owned clone to the closure
-            // keeps it alive without borrowing the caller's reference.
+            // GObjects, so handing owned clones to the closure keeps them alive
+            // without borrowing the caller's references.
             let view = view.clone();
+            let panel = panel.clone();
             confirm_switch(parent, from.as_deref(), to, move || {
-                log::write(
+                log::step(&view, &panel, &format!("switch requested: {to}"));
+                log::step(
                     &view,
-                    &format!(
-                        "confirmed: switch to {to} — backend not implemented yet, \
-                         nothing was changed"
-                    ),
+                    &panel,
+                    "backend not implemented yet, nothing was changed",
                 );
+                log::succeeded(&panel);
             });
         }
     }

@@ -54,13 +54,13 @@ pub fn build(stack: &gtk4::Stack, shared: &Shared) -> GtkBox {
             stack.set_visible_child_name(id);
 
             let selection = shared.borrow();
-            selection.write(&format!("compositor -> {label}"));
+            selection.note(&format!("compositor -> {label}"));
             match selection.guard_reason(compositor) {
-                Some(reason) => selection.write(&format!("blocked: {reason}")),
+                Some(reason) => selection.note(&format!("blocked: {reason}")),
                 None if count == 0 => {
-                    selection.write(&format!("{id}: no shells registered yet (coming soon)."))
+                    selection.note(&format!("{id}: no shells registered yet (coming soon)."))
                 }
-                None => selection.write(&format!("{id}: {count} shells")),
+                None => selection.note(&format!("{id}: {count} shells")),
             }
         });
 
