@@ -128,11 +128,11 @@ fn alert(
 }
 
 /// Compositor mismatch. Not a yes/no: there is nothing to agree to.
-pub fn refuse_cross_compositor(parent: &ApplicationWindow, target: &str, current: &str) {
+pub fn refuse_cross_compositor(parent: &ApplicationWindow, target: &str, _current: &str) {
     alert(
         parent,
         "Blocked",
-        &format!("{target} is not the running compositor — {current} is."),
+        &format!("{target} is not the running compositor"),
         Some("Switch image in <b>\"RakuOS system management\"</b>."),
     );
 }

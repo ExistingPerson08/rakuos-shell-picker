@@ -118,7 +118,7 @@ memindah shell yang sedang berjalan, bukan memasang paket:
 
 | Keadaan | Judul | Body | Baris penekanan |
 |---|---|---|---|
-| Compositor berbeda | `Blocked` | `niri is not the running compositor — hyprland is.` | Switch image in **"RakuOS system management"**. |
+| Compositor berbeda | `Blocked` | `niri is not the running compositor` | Switch image in **"RakuOS system management"**. |
 | Compositor tidak terdeteksi | `Blocked` | alasannya | Nothing was changed. |
 | Shell sudah hidup | `Already running` | `Noctalia is already running.` | Nothing to switch to. |
 | Shell belum terpasang | `Not installed` | `Caelestia Shell is not installed.` | Packages come from the **RakuOS** image. |

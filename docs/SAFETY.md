@@ -91,7 +91,7 @@ aturan; UI cuma supaya user tidak dicoba-coba.
 Pesan penolakan yang dipakai:
 
 ```
-niri is not the running compositor (hyprland is).
+niri is not the running compositor
 Switching compositor means switching image — use "RakuOS system management".
 ```
 
