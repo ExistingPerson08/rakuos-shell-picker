@@ -88,12 +88,100 @@ pub struct Shell {
     /// then carried out of a switch.
     pub state_dir: Option<&'static str>,
     pub systemd_user_unit: Option<&'static str>,
+    /// How to install this shell if it is missing. `None` means there is nothing
+    /// to run: either the base image already has it, or no repository carries it.
+    pub install_plan: Option<InstallPlan>,
     pub mechanism: StartMechanism,
     /// Health probe: a process name or an IPC socket path. Empty means the
     /// process name is used.
     pub health_socket: Option<&'static str>,
     /// File name inside the project `assets/` directory.
     pub logo: Option<&'static str>,
+}
+
+/// This project's own directory name, used to keep its files from colliding with
+/// anything else under a shared XDG directory.
+pub const PICKER_DIR: &str = "rakuos-shell-picker";
+
+/// How this shell gets installed when it is not there yet.
+///
+/// Declared next to the shell rather than in a dispatch table, because whether a
+/// shell can be installed is a fact about that shell: DMS ships in the RakuOS
+/// repository, Noctalia is already in the base image, and Caelestia and Ambxst
+/// are in no repository at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InstallPlan {
+    /// The package that identifies this shell, and what availability is checked
+    /// against.
+    pub package: &'static str,
+    /// The install stages, in the order they must run. Each stage is one
+    /// privileged transaction with its own prompt.
+    ///
+    /// Ordering is a safety property, not a convenience. A shell's runtime goes
+    /// in its own stage first: it is small, it is the piece most likely to fail
+    /// for its own reasons, and if it fails there is then nothing of the shell
+    /// itself installed. One transaction would install everything or roll back
+    /// together, so a failure in the runtime would take the shell's own packages
+    /// with it for no benefit.
+    ///
+    /// Naming the packages inside a stage also takes a choice away from the
+    /// dependency solver, which is stronger than inspecting the choice
+    /// beforehand. `dms` requires `(quickshell or quickshell-git)` and the
+    /// repository also carries `noctalia-qs`, which provides the same capability;
+    /// a check reads metadata that can already be stale by the time the install
+    /// runs, while the command line is read at the moment it matters.
+    pub stages: &'static [&'static [&'static str]],
+    /// The program to run, and its arguments.
+    ///
+    /// Package names do not belong here: they come from [`Self::stages`], so that
+    /// the logged command and the command that actually runs cannot drift apart
+    /// by someone forgetting to repeat a name in two places.
+    pub program: &'static str,
+    pub args: &'static [&'static str],
+}
+
+impl InstallPlan {
+    /// The whole plan as one command line, for the log and the progress panel.
+    ///
+    /// This is what the plan would amount to, shown as a single line so the user
+    /// can read the full set before authorizing anything. The runs are per stage.
+    ///
+    /// `pkexec` and not a password prompt: the password goes to the polkit
+    /// agent, so it never passes through this process or its log.
+    pub fn command_line(&self) -> String {
+        self.line_for(&self.packages())
+    }
+
+    /// One stage as a command line.
+    pub fn stage_command_line(&self, stage: &[&str]) -> String {
+        self.line_for(stage)
+    }
+
+    fn line_for(&self, packages: &[&str]) -> String {
+        let mut line = self.program.to_string();
+        for arg in self.args {
+            line.push(' ');
+            line.push_str(arg);
+        }
+        for package in packages {
+            line.push(' ');
+            line.push_str(package);
+        }
+        line
+    }
+
+    /// Every package the plan installs, in stage order and without duplicates.
+    pub fn packages(&self) -> Vec<&'static str> {
+        let mut packages: Vec<&'static str> = Vec::new();
+        for stage in self.stages {
+            for package in *stage {
+                if !packages.contains(package) {
+                    packages.push(package);
+                }
+            }
+        }
+        packages
+    }
 }
 
 /// Look a shell up across every registered compositor. Registries stay
@@ -305,6 +393,82 @@ mod tests {
     fn a_relative_overlay_path_is_not_trusted() {
         assert_eq!(parse_overlay_dbpath("overlay rpmdb: rum-rpmdb\n"), None);
         assert_eq!(parse_overlay_dbpath("overlay rpmdb:\n"), None);
+    }
+
+    #[test]
+    fn an_install_plan_reads_as_one_command_line() {
+        let plan = InstallPlan {
+            package: "dms",
+            stages: &[&["dms"]],
+            program: "pkexec",
+            args: &["rum", "install", "-y"],
+        };
+        assert_eq!(plan.command_line(), "pkexec rum install -y dms");
+    }
+
+    #[test]
+    fn an_install_plan_with_no_arguments_still_names_its_stage() {
+        let plan = InstallPlan {
+            package: "x",
+            stages: &[&["x"]],
+            program: "pkexec",
+            args: &[],
+        };
+        assert_eq!(plan.command_line(), "pkexec x");
+    }
+
+    #[test]
+    fn the_whole_plan_reads_as_one_line_but_runs_stage_by_stage() {
+        let plan = InstallPlan {
+            package: "dms",
+            stages: &[&["quickshell-git"], &["dms", "dms-cli"]],
+            program: "pkexec",
+            args: &["rum", "install", "-y"],
+        };
+        assert_eq!(
+            plan.command_line(),
+            "pkexec rum install -y quickshell-git dms dms-cli"
+        );
+        assert_eq!(
+            plan.stage_command_line(&["quickshell-git"]),
+            "pkexec rum install -y quickshell-git"
+        );
+        assert_eq!(
+            plan.stage_command_line(&["dms", "dms-cli"]),
+            "pkexec rum install -y dms dms-cli"
+        );
+    }
+
+    #[test]
+    fn a_package_is_never_named_twice_across_stages() {
+        let plan = InstallPlan {
+            package: "dms",
+            stages: &[&["quickshell-git"], &["dms", "quickshell-git"]],
+            program: "pkexec",
+            args: &["rum", "install", "-y"],
+        };
+        assert_eq!(plan.packages(), vec!["quickshell-git", "dms"]);
+    }
+
+    #[test]
+    fn the_dms_plan_installs_the_runtime_before_the_shell() {
+        let plan = crate::compositor::hyprland::shells::dms::SHELL
+            .install_plan
+            .expect("dms is installable from the rakuos repository");
+        assert_eq!(plan.stages.len(), 2);
+        assert_eq!(plan.stages[0], &["quickshell-git"]);
+        assert!(plan.stages[1].contains(&"dms"));
+        assert!(plan.stages[1].contains(&"dankcalendar-git"));
+    }
+
+    #[test]
+    fn the_dms_plan_asks_for_quickshell_git_and_not_noctalia_qs() {
+        let plan = crate::compositor::hyprland::shells::dms::SHELL
+            .install_plan
+            .expect("dms is installable from the rakuos repository");
+        let line = plan.command_line();
+        assert!(line.contains("quickshell-git"), "{line}");
+        assert!(!line.contains("noctalia-qs"), "{line}");
     }
 
     #[test]

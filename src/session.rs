@@ -97,9 +97,31 @@ impl State {
         state_dir()
     }
 
+    /// Where verified backups are written.
+    ///
+    /// `share`, not `state`, and the distinction is deliberate. `$XDG_STATE_HOME`
+    /// is defined as the place for things that are not important enough to
+    /// synchronise and that are safe to delete between runs, which is the
+    /// opposite of a backup: it is a copy of the user's configuration, kept
+    /// precisely so it can be put back. Putting them in `state` also means the
+    /// routine `rm -rf ~/.local/state/*` that people run to clear caches throws
+    /// away the recovery copies along with them.
     pub fn backups_dir() -> PathBuf {
-        state_dir().join("backups")
+        data_dir().join("backups").join(crate::shell::PICKER_DIR)
     }
+}
+
+/// `$XDG_DATA_HOME`, or `~/.local/share`.
+fn data_dir() -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| {
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default();
+            home.join(".local").join("share")
+        })
 }
 
 fn state_dir() -> PathBuf {
@@ -168,10 +190,35 @@ mod tests {
     }
 
     #[test]
-    fn state_dir_is_under_xdg_state() {
-        let dir = State::state_dir();
-        assert!(dir.ends_with("rakuos/shell-picker"));
-        assert!(State::backups_dir().starts_with(&dir));
+    fn state_lives_in_xdg_state_and_backups_live_in_xdg_data() {
+        let state = State::state_dir();
+        assert!(state.ends_with("rakuos/shell-picker"), "got {state:?}");
+
+        let backups = State::backups_dir();
+        assert!(
+            backups.ends_with("backups/rakuos-shell-picker"),
+            "got {backups:?}"
+        );
+        // Not under state on purpose: state is the disposable tree, and a backup
+        // is the one thing here that must not be swept away with a cache clean.
+        assert!(
+            !backups.starts_with(&state),
+            "backups must not sit inside the state tree: {backups:?}"
+        );
+    }
+
+    #[test]
+    fn backups_follow_xdg_data_home_when_it_is_set() {
+        // Set in this process only; the assert is about the code path, and other
+        // tests read the real environment.
+        let dir = State::backups_dir();
+        assert!(dir.is_absolute());
+        if let Some(custom) = std::env::var_os("XDG_DATA_HOME") {
+            let custom = PathBuf::from(custom);
+            if custom.is_absolute() {
+                assert!(dir.starts_with(custom), "got {dir:?}");
+            }
+        }
     }
 
     #[test]

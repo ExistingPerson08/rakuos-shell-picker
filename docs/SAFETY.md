@@ -160,27 +160,50 @@ tidak ada di repo mana pun sehingga belum mungkin terpasang sama sekali.
 Urutan satu-satunya yang boleh dipakai:
 
 ```
- 1. refuse    : guard compositor, shell target terpasang, lokasi config-nya
-                diketahui, dan tidak ada shell asing yang sedang hidup
+ 1. refuse    : guard compositor, lokasi config shell target diketahui, dan
+                tidak ada shell asing yang sedang hidup. Shell target yang belum
+                terpasang BOLEH diteruskan selama ia punya rencana install, karena
+                backup selalu mendahului install
  2. preflight : environment + start mechanism siap (binary, unit systemd, atau
                 file autostart benar-benar ada)
  3. BACKUP    : delapan path di bawah, disalin ke
                 backups/<waktu>-<compositor>-<shell>/ lalu DIBACA ULANG untuk
                 dicocokkan dengan manifest
                                             <- gagal di sini, switch dibatalkan
- 4. catat state "sedang berganti"           -> supaya sesi bisa dipulihkan
- 5. dependency : paket target dan seluruh yang ikutannya dicek dulu (rum, tanpa
-                mengubah apa pun)
- 6. INSTALL   : pkexec rum install -y <paket>, hanya kalau memang belum ada
- 7. terapkan skel : config milik shell diganti penuh; hypr/uwsm hanya fragment
- 8. stop      : shell lama diberi SIGTERM -> ditunggu -> batas waktu -> kill -9
-                hanya sebagai upaya terakhir
- 9. start     : shell baru, sesuai StartMechanism-nya
-10. verify    : shell baru benar-benar hidup dalam batas waktu
-11. state     : tulis active/previous
-12. ROLLBACK  : kalau langkah 9/10 gagal, start lagi shell lama dan kembalikan
-                config dari backup
+4. catat state "sedang berganti"           -> supaya sesi bisa dipulihkan
+  5. INSTALL   : satu privileged transaction per tahap, pkexec rum install -y
+                 <paket>, hanya untuk paket yang memang belum ada
+                                             <- gagal di sini, switch dibatalkan
+  6. terapkan skel : config milik shell diganti penuh; hypr/uwsm hanya fragment
+  7. stop      : shell lama diberi SIGTERM -> ditunggu -> batas waktu -> kill -9
+                 hanya sebagai upaya terakhir
+  8. start     : shell baru, sesuai StartMechanism-nya
+  9. verify    : shell baru benar-benar hidup dalam batas waktu
+ 10. state     : tulis active/previous
+ 11. ROLLBACK  : kalau langkah 8/9 gagal, start lagi shell lama dan kembalikan
+                 config dari backup
 ```
+
+**Tidak ada langkah "cek dependency" terpisah, dan itu disengaja.** `rum install`
+memang sudah menyelesaikan transaksi itu sendiri: paket yang sudah ada dilewati,
+yang kurang ditarik, dan Provide yang salah tidak akan terpilih. Pemeriksaan
+terpisah hanya mengulang pekerjaan itu, menambah detik ke setiap klik, dan
+membaca metadata yang bisa sudah basi saat install berjalan. Yang unsafe bukan
+"solvernya memilih" — unsafe kalau kita **tidak menentukan** pilihannya. Maka
+nama paket ditulis langsung di command line, dan itu dibaca pada saat yang
+benar:
+
+| paket | ditulis karena |
+| --- | --- |
+| `quickshell-git` | `dms` meminta `(quickshell or quickshell-git)`; repo juga punya `noctalia-qs` yang menyediakan kapabilitas sama. Itu build Noctalia lama, hanya dibutuhkan paket `noctalia-legacy` yang sudah mati. |
+| `dms-cli` | hard requirement yang versinya dikunci `= 1.6.2-1.fc44` |
+| `dankcalendar-git` | **tidak menjadi dependency RPM DMS sama sekali**, tapi `quickshell/Modules/DankDash` memakainya. Tanpa itu widget kalender rusak, dan tidak ada metadata yang akan memberi tahu. |
+
+Install dipecah jadi dua tahap, `quickshell-git` lebih dulu sendirian. Kalau
+tahap itu gagal, tahap kedua tidak dijalankan, jadi tidak ada satu pun paket DMS
+di mesin. Menggabungkan keduanya berarti kegagalan runtime ikut menjatuhkan
+paket shell tanpa keuntungan apa pun.
+
 
 Backup selalu **lebih dulu**, sebelum satu pun langkah yang menulis. Backup
 hanya membaca, jadi tidak ada ruginya kalau ternyata langkah berikutnya batal.
@@ -307,8 +330,14 @@ pengecualian untuk hal ini.
 ## Lokasi backup
 
 ```
-~/.local/state/rakuos/shell-picker/backups/
-  20261002-183045-hyprland-noctalia/
+# $XDG_DATA_HOME/backups/rakuos-shell-picker/, yaitu ~/.local/share/... di sini
+# BUKAN $XDG_STATE_HOME. State adalah tempat untuk bendahara yang tidak penting
+# dan aman dihapus antar-run; backup justru bendahara yang paling perlu selamat,
+# jadi diletakkan di share. Kalau tidak, satu "rm -rf ~/.local/state/*" untuk
+# bersihin cache akan ikut menghapus seluruh recovery copy.
+```
+~/.local/share/backups/rakuos-shell-picker/
+  20261003-022126-hyprland-noctalia/
     manifest.toml          isi tiap path, jumlah file, ukuran, symlink
     home/                  salinan, mirroring path asli relatif terhadap $HOME
   20261002-190112-hyprland-dms/

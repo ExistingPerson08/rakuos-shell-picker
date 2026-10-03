@@ -44,7 +44,11 @@ impl EnvSource for HashMap<String, String> {
     }
 }
 
-pub trait Compositor {
+/// `Sync` because a switch runs on a worker thread and the compositor it is
+/// switching under has to be readable from there. Every implementation is a
+/// stateless zero-sized struct, so this costs nothing and rules out a
+/// compositor that quietly keeps state.
+pub trait Compositor: Sync {
     fn id(&self) -> &'static str;
     fn label(&self) -> &'static str;
     /// Shells registered for this compositor. May legitimately be empty.
@@ -53,6 +57,15 @@ pub trait Compositor {
     /// Environment variable this compositor sets for everything it spawns.
     /// This is the primary detection signal.
     fn marker_env(&self) -> &'static str;
+
+    /// The compositor's own configuration directory, relative to `$HOME`.
+    ///
+    /// Declared here rather than listed among the shared paths because it is the
+    /// one path whose name follows the compositor: `~/.config/hypr` on Hyprland,
+    /// `~/.config/niri` on Niri. A switch touches it, so a backup has to save it,
+    /// and hardcoding either one in shared code would make the other compositor a
+    /// second-class citizen the moment it is actually used.
+    fn config_dir(&self) -> &'static str;
 
     /// Whether this compositor is the one currently running.
     fn is_running_with(&self, env: &dyn EnvSource) -> bool;

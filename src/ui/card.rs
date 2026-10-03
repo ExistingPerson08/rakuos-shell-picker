@@ -60,7 +60,7 @@ pub fn build(
     let selected = shared.clone();
     btn.connect_toggled(move |btn| {
         if btn.is_active() {
-            selected.borrow_mut().activate(compositor, shell);
+            selected.borrow_mut().activate(&selected, compositor, shell);
         }
     });
 

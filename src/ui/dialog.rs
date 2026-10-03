@@ -28,6 +28,8 @@ pub enum Action {
     ConfirmSwitch {
         from: Option<String>,
         to: &'static str,
+        /// The target is not installed yet and will be installed by the switch.
+        install: bool,
     },
     /// Compositor could not be identified at all.
     RefuseUndetected { reason: String },
@@ -81,7 +83,14 @@ pub fn decide(
         };
     }
 
-    if !state.installed {
+    // Not being installed only refuses a shell there is no way to obtain. The
+    // test is the install plan rather than the package name, because the plan is
+    // the per-shell declaration that an install is actually possible: DMS has
+    // one, while Caelestia and Ambxst have a package field of None and no
+    // repository entry either. A shell with a plan is worth switching to,
+    // because the backend installs it only after the backup.
+    let install = !state.installed && shell.install_plan.is_some();
+    if !state.installed && !install {
         return Action::NotInstalled {
             shell: shell.display_name.to_string(),
         };
@@ -92,6 +101,7 @@ pub fn decide(
     Action::ConfirmSwitch {
         from,
         to: shell.display_name,
+        install,
     }
 }
 
@@ -191,6 +201,7 @@ pub fn confirm_switch(
     parent: &ApplicationWindow,
     from: Option<&str>,
     to: &str,
+    install: bool,
     on_confirm: impl Fn() + 'static,
 ) {
     let body = match from {
@@ -199,9 +210,14 @@ pub fn confirm_switch(
     };
 
     let dialog = AlertDialog::new(Some(&format!("Switch to {to}?")), Some(&body));
-    dialog.set_extra_child(Some(&markup_label(
-        "Configuration is backed up and never deleted.",
-    )));
+    // Say so before the click, not after: installing is the only step here that
+    // changes the system, and it happens after the backup, not before.
+    let extra = if install {
+        format!("{to} is not installed yet. Your configuration is backed up first, then it is installed.")
+    } else {
+        "Configuration is backed up and never deleted.".to_string()
+    };
+    dialog.set_extra_child(Some(&markup_label(&extra)));
     dialog.add_response("cancel", "Cancel");
     dialog.add_response("switch", &format!("Switch to {to}"));
     dialog.set_response_appearance("switch", ResponseAppearance::Suggested);
@@ -242,14 +258,12 @@ pub fn present(parent: &ApplicationWindow, action: Action) {
             crate::logging::info(&format!("no-op: {shell} is not installed"));
             not_installed(parent, &shell);
         }
-        Action::ConfirmSwitch { from, to } => {
-            confirm_switch(parent, from.as_deref(), to, move || {
-                // No backend yet, so there is no operation to report and the
-                // panel stays hidden. Opening it here would be a lie: the panel
-                // means steps are being taken.
-                crate::logging::info(&format!("switch requested: {to}"));
-                crate::logging::info("backend not implemented yet, nothing was changed");
-            });
+        Action::ConfirmSwitch { .. } => {
+            // Handled by the caller, which owns the shared selection state and
+            // can therefore start the operation. Reaching this arm means the
+            // caller sent the action back without acting on it, which would be a
+            // bug rather than a state, so it is recorded instead of ignored.
+            crate::logging::info("switch confirmed but not started: caller did not handle it");
         }
     }
 }
@@ -258,7 +272,7 @@ pub fn present(parent: &ApplicationWindow, action: Action) {
 mod tests {
     use super::*;
     use crate::compositor::SystemEnv;
-    use crate::shell::StartMechanism;
+    use crate::shell::{InstallPlan, StartMechanism};
     use std::collections::HashMap;
 
     /// Statics, because `decide` takes `&'static Shell` exactly like the real
@@ -273,11 +287,17 @@ mod tests {
         id: "fake",
         display_name: "Fake Shell",
         upstream: "test",
-        package: None,
+        package: Some("fake"),
         binary: "basename",
         start_argv: &["basename"],
         config_dir: None,
         state_dir: None,
+        install_plan: Some(InstallPlan {
+            package: "fake",
+            stages: &[&["fake"]],
+            program: "pkexec",
+            args: &["rum", "install", "-y"],
+        }),
         systemd_user_unit: None,
         mechanism: StartMechanism::DirectProcess,
         health_socket: None,
@@ -293,6 +313,7 @@ mod tests {
         start_argv: &["definitely-not-here"],
         config_dir: None,
         state_dir: None,
+        install_plan: None,
         systemd_user_unit: None,
         mechanism: StartMechanism::DirectProcess,
         health_socket: None,
@@ -308,6 +329,7 @@ mod tests {
         start_argv: &["bash"],
         config_dir: None,
         state_dir: None,
+        install_plan: None,
         systemd_user_unit: None,
         mechanism: StartMechanism::DirectProcess,
         health_socket: None,
@@ -329,6 +351,15 @@ mod tests {
             installed: false,
             running: false,
             running_shell: None,
+        }
+    }
+
+    /// Not installed, but there is a plan to install it.
+    fn absent_installable() -> ShellState {
+        ShellState {
+            installed: false,
+            running: false,
+            running_shell: Some(&ALREADY_RUNNING),
         }
     }
 
@@ -451,6 +482,52 @@ mod tests {
         assert!(matches!(
             decide(&detection, hyprland(), &INSTALLED_IDLE, ready()),
             Action::RefuseUndetected { .. }
+        ));
+    }
+
+    #[test]
+    fn a_packaged_but_missing_shell_offers_an_install() {
+        // INSTALLED_IDLE has an install plan but is reported as not installed:
+        // that is DMS today, and the dialog has to say what will happen rather
+        // than imply the shell is already there.
+        let detection = crate::compositor::detect_with(&hyprland_session());
+        match decide(
+            &detection,
+            hyprland(),
+            &INSTALLED_IDLE,
+            absent_installable(),
+        ) {
+            Action::ConfirmSwitch { install, to, .. } => {
+                assert!(install, "the dialog must say it will install first");
+                assert_eq!(to, "Fake Shell");
+            }
+            other => panic!("expected a confirmation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_installed_shell_is_not_announced_as_installing() {
+        let detection = crate::compositor::detect_with(&hyprland_session());
+        match decide(&detection, hyprland(), &INSTALLED_IDLE, ready()) {
+            Action::ConfirmSwitch { install, .. } => assert!(!install),
+            other => panic!("expected a confirmation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_shell_with_no_package_and_nothing_installed_is_refused() {
+        // NOT_INSTALLED has no package and no install plan, so there is nowhere
+        // to get it from. Refusing here is what keeps a doomed switch from
+        // taking a backup first.
+        let detection = crate::compositor::detect_with(&hyprland_session());
+        let state = ShellState {
+            installed: false,
+            running: false,
+            running_shell: None,
+        };
+        assert!(matches!(
+            decide(&detection, hyprland(), &NOT_INSTALLED, state),
+            Action::NotInstalled { .. }
         ));
     }
 

@@ -46,14 +46,14 @@ fn sink() -> &'static Mutex<Option<Sink>> {
     SINK.get_or_init(|| Mutex::new(None))
 }
 
-/// RFC 3339 UTC. `%m` is used rather than `month()` because the meaning of that
-/// accessor is not obvious at a glance, and a log that is off by one month is
-/// worse than no log.
+/// RFC 3339 UTC.
+///
+/// Month is zero-padded rather than taken from a `month()` accessor, because the
+/// meaning of that accessor is not obvious at a glance and a log that is off by
+/// one month is worse than no log. From [`crate::clock`] so that logging stays
+/// callable from any thread.
 fn timestamp() -> String {
-    gtk4::glib::DateTime::now_utc()
-        .and_then(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ"))
-        .map(|s| s.to_string())
-        .unwrap_or_else(|_| "0000-00-00T00:00:00Z".to_string())
+    crate::clock::rfc3339()
 }
 
 /// The directory the log lives in.

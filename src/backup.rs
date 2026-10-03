@@ -541,7 +541,8 @@ mod tests {
         let dest = std::env::temp_dir().join("rakuos-shell-picker-live-backup");
         let _ = fs::remove_dir_all(&dest);
 
-        let sources = crate::switch::backup_sources(&home, Some(&NOCTALIA));
+        let sources =
+            crate::switch::backup_sources(&home, &crate::compositor::HYPRLAND, Some(&NOCTALIA));
         let backup = Backup::create(&dest, "live-check", &sources, &home).unwrap();
 
         println!(

@@ -24,6 +24,10 @@ impl Compositor for Niri {
         shells::ALL
     }
 
+    fn config_dir(&self) -> &'static str {
+        ".config/niri"
+    }
+
     fn marker_env(&self) -> &'static str {
         "NIRI_SOCKET"
     }

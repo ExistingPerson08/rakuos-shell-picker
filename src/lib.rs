@@ -27,6 +27,7 @@
 
 pub mod app;
 pub mod backup;
+pub mod clock;
 pub mod compositor;
 pub mod logging;
 pub mod session;
@@ -36,7 +37,7 @@ pub mod ui;
 
 #[cfg(test)]
 mod registry_tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap, HashSet};
     use std::path::PathBuf;
 
     use super::compositor;
@@ -154,6 +155,84 @@ mod registry_tests {
             !ids.contains(&"caelestia"),
             "caelestia has no official niri port; only community forks"
         );
+    }
+
+    #[test]
+    fn an_install_plan_names_the_same_package_as_the_shell() {
+        // The availability check is done against Shell::package, and the install
+        // is done with InstallPlan::package. If they drift apart the picker would
+        // check one package and install another.
+        for compositor in compositor::all() {
+            for shell in compositor.shells() {
+                if let Some(plan) = shell.install_plan {
+                    assert_eq!(
+                        shell.package,
+                        Some(plan.package),
+                        "{}: install plan installs {} but the shell is checked as {:?}",
+                        shell.id,
+                        plan.package,
+                        shell.package
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn only_dms_can_be_installed_and_it_asks_for_polkit() {
+        // Deliberately a fact about today, not a general rule: when Caelestia
+        // and Ambxst get packaged this test is what should be updated.
+        let with_plan: BTreeSet<_> = compositor::all()
+            .iter()
+            .flat_map(|c| c.shells())
+            .filter(|s| s.install_plan.is_some())
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(with_plan, BTreeSet::from(["dms"]));
+
+        let dms = super::shell::find("dms").expect("dms registered");
+        let plan = dms.install_plan.expect("dms installs from a repository");
+        assert_eq!(
+            plan.command_line(),
+            "pkexec rum install -y quickshell-git dms dms-cli dgop danksearch \
+             dankcalendar-git matugen"
+        );
+        // The password must go to the polkit agent, never through this process.
+        assert_eq!(plan.program, "pkexec");
+        // quickshell-git is named so the solver cannot hand back noctalia-qs,
+        // which is the legacy Noctalia build and not a dependency of anything
+        // current.
+        assert!(!plan.command_line().contains("noctalia-qs"));
+    }
+
+    #[test]
+    fn a_shell_without_an_install_plan_has_nothing_to_install() {
+        // Noctalia is in the base image; Caelestia and Ambxst are in no repo.
+        for id in ["noctalia", "caelestia", "ambxst"] {
+            let shell = super::shell::find(id).unwrap_or_else(|| panic!("{id} registered"));
+            assert!(
+                shell.install_plan.is_none(),
+                "{id} should have no install plan"
+            );
+        }
+    }
+
+    #[test]
+    fn every_shell_states_where_its_config_lives() {
+        // A shell with no config location cannot be backed up or seeded, which
+        // is why preflight refuses it. Recorded here so adding such a shell is a
+        // deliberate act rather than an oversight.
+        for compositor in compositor::all() {
+            for shell in compositor.shells() {
+                if shell.config_dir.is_none() {
+                    assert!(
+                        shell.install_plan.is_none(),
+                        "{} has no config directory, so it must also be uninstallable",
+                        shell.id
+                    );
+                }
+            }
+        }
     }
 
     #[test]

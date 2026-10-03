@@ -17,6 +17,8 @@ pub mod tabbar;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Label, Orientation, Revealer, TextView, ToggleButton};
@@ -31,6 +33,30 @@ struct Item {
     label: Label,
 }
 
+/// One switch at a time.
+///
+/// A switch is not re-entrant. Two workers at once would race on the backup
+/// directory, and once an install is involved they would each raise their own
+/// polkit prompt, so the user could authorize one transaction while a second one
+/// they never saw was already writing.
+#[derive(Default)]
+struct Busy(std::cell::Cell<bool>);
+
+impl Busy {
+    /// Take the switch, or report that it is already taken.
+    fn claim(&self) -> bool {
+        if self.0.get() {
+            return false;
+        }
+        self.0.set(true);
+        true
+    }
+
+    fn release(&self) {
+        self.0.set(false);
+    }
+}
+
 /// State shared by the tab bar and every card.
 pub struct Selection {
     log: TextView,
@@ -40,6 +66,9 @@ pub struct Selection {
     /// Weak, because the window owns this widget: a strong reference would make
     /// the two keep each other alive.
     window: gtk4::glib::WeakRef<ApplicationWindow>,
+    /// Claimed when a worker starts, released by the drain when its channel
+    /// closes.
+    busy: Busy,
 }
 
 impl Selection {
@@ -55,6 +84,7 @@ impl Selection {
             items: Vec::new(),
             detection,
             window: window.downgrade(),
+            busy: Busy::default(),
         }
     }
 
@@ -108,9 +138,11 @@ impl Selection {
         &self.detection
     }
 
-    /// A card was clicked. Runs the safety gate; nothing else does.
+    /// A card was clicked. Runs the safety gate, and starts the switch if the
+    /// user says yes.
     pub fn activate(
         &mut self,
+        shared: &Shared,
         compositor: &'static dyn Compositor,
         shell: &'static crate::shell::Shell,
     ) {
@@ -122,11 +154,25 @@ impl Selection {
             running_shell: dialog::running_shell(),
         };
         let action = dialog::decide(&self.detection, compositor, shell, state);
-        match action {
-            dialog::Action::ConfirmSwitch { .. } => self.highlight(shell.id),
-            _ => self.clear_highlight(),
+
+        if let dialog::Action::ConfirmSwitch { from, to, install } = &action {
+            self.highlight(shell.id);
+            let Some(window) = self.window.upgrade() else {
+                return;
+            };
+            let current = self.detection.current.map(str::to_string);
+            let from = from.clone();
+            let to = *to;
+            // The callback outlives this call, so it takes its own copy of the
+            // shared state rather than a borrow of it.
+            let owned = shared.clone();
+            dialog::confirm_switch(&window, from.as_deref(), to, *install, move || {
+                begin(&owned, compositor, current.clone(), shell);
+            });
+            return;
         }
 
+        self.clear_highlight();
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -165,6 +211,203 @@ impl Selection {
             Some(current) => dialog::refuse_cross_compositor(&window, compositor.id(), current),
             None => dialog::refuse_undetected(&window, &reason),
         }
+    }
+}
+
+/// One line of progress from the worker thread.
+#[derive(Debug, PartialEq)]
+enum Line {
+    Step(String),
+    Done(String),
+    Failed(String),
+}
+
+/// Run the switch off the main loop and report it in the panel.
+///
+/// The work is blocking: copying the config tree and shelling out to rum both
+/// freeze a UI for seconds. So it runs on a worker thread and the panel is fed
+/// from a channel drained back on the main loop, because GTK widgets may only be
+/// touched from there.
+fn begin(
+    shared: &Shared,
+    compositor: &'static dyn Compositor,
+    current: Option<String>,
+    target: &'static crate::shell::Shell,
+) {
+    // Claim the switch before anything else. Refusing here costs the user one
+    // line in the panel; letting two run costs them a backup race and a second
+    // polkit prompt they never saw.
+    if !shared.borrow().busy.claim() {
+        shared
+            .borrow()
+            .failed("a switch is already running; wait for it to finish");
+        return;
+    }
+
+    let (tx, rx) = std::sync::mpsc::channel::<Line>();
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let backups = crate::session::State::backups_dir();
+
+    std::thread::spawn(move || {
+        let Some(home) = home else {
+            let _ = tx.send(Line::Failed(
+                "HOME is not set, cannot locate your config".into(),
+            ));
+            return;
+        };
+
+        let _ = tx.send(Line::Step("backing up your configuration".to_string()));
+        let running = dialog::running_shell();
+        if let Some(shell) = running {
+            let _ = tx.send(Line::Step(format!(
+                "outgoing shell: {}",
+                shell.display_name
+            )));
+        }
+
+        match crate::switch::prepare(
+            compositor,
+            current.as_deref(),
+            target,
+            running,
+            &home,
+            &backups,
+        ) {
+            Ok(prepared) => {
+                let count = prepared.backup.file_count();
+                let bytes: u64 = prepared
+                    .backup
+                    .manifest
+                    .trees
+                    .values()
+                    .map(|t| t.bytes)
+                    .sum();
+                let absent = prepared.backup.manifest.absent.len();
+                let _ = tx.send(Line::Step(format!(
+                    "backed up {count} files ({bytes} bytes, {absent} paths absent) and verified them"
+                )));
+                let _ = tx.send(Line::Step(format!(
+                    "saved in {}",
+                    prepared.backup.root.display()
+                )));
+
+                // The backup is verified, so the install can be allowed to write.
+                // Nothing after this point is reversible by re-copying, which is
+                // why the log keeps saying what is about to run.
+                let Some(plan) = target.install_plan else {
+                    let _ = tx.send(Line::Done(
+                        "backup finished. This shell has no install plan, so nothing else was touched."
+                            .to_string(),
+                    ));
+                    return;
+                };
+
+                let _ = tx.send(Line::Step(format!(
+                    "installing in {} stages: {}",
+                    plan.stages.len(),
+                    plan.command_line()
+                )));
+                match crate::switch::install(plan) {
+                    crate::switch::Install::Finished { stages, .. } => {
+                        let _ = tx.send(Line::Step(format!("{stages} stage(s) installed")));
+                        let _ = tx.send(Line::Done(format!(
+                            "installed. Starting {} and the skel are still not wired up, so \
+                             nothing has been switched.",
+                            target.display_name
+                        )));
+                    }
+                    crate::switch::Install::AlreadyThere { packages } => {
+                        let _ = tx.send(Line::Done(format!(
+                            "already installed: {}. Starting {} and the skel are still not \
+                             wired up, so nothing has been switched.",
+                            packages.join(", "),
+                            target.display_name
+                        )));
+                    }
+                    crate::switch::Install::Dismissed { stage } => {
+                        let _ = tx.send(Line::Failed(format!(
+                            "the permission prompt for stage {stage} was dismissed. Your backup \
+                             is still in place."
+                        )));
+                    }
+                    crate::switch::Install::Failed {
+                        stage,
+                        status,
+                        output,
+                    } => {
+                        let _ = tx.send(Line::Failed(format!(
+                            "stage {stage} failed ({status}); later stages were not run. Your \
+                             backup is still in place. rum said: {}",
+                            output.lines().rev().take(3).collect::<Vec<_>>().join(" / ")
+                        )));
+                    }
+                }
+            }
+            Err(refusal) => {
+                let _ = tx.send(Line::Failed(refusal.message()));
+            }
+        }
+    });
+
+    let polled = shared.clone();
+    gtk4::glib::timeout_add_local(Duration::from_millis(80), move || drain(&polled, &rx));
+}
+
+/// Drain everything the worker has sent so far, without blocking.
+///
+/// Split out of [`drain`] so it can be tested without a display. It is a loop
+/// with a deliberate exit on every branch, because the exit on
+/// [`TryRecvError::Disconnected`] is the whole point: once the worker thread
+/// ends and drops its sender, `try_recv` returns `Disconnected` for ever, so a
+/// loop that keeps going after it never terminates. That bug spent one whole
+/// core at 100% inside the GTK timeout callback, which starved the main loop,
+/// so the window stopped painting and the compositor declared the app hung.
+/// Nothing about it looked like a crash, which is why it survived several
+/// attempts to find it by reading the code.
+///
+/// Returns the lines and whether the operation is over.
+fn receive(rx: &Receiver<Line>) -> (Vec<Line>, bool) {
+    let mut lines = Vec::new();
+    let mut finished = false;
+    loop {
+        match rx.try_recv() {
+            Ok(line) => {
+                if matches!(line, Line::Done(_) | Line::Failed(_)) {
+                    finished = true;
+                }
+                lines.push(line);
+                // A worker sends its steps first and its final line last, so once
+                // the final line is in hand there is nothing after it to wait for.
+                if finished {
+                    break;
+                }
+            }
+            // Every sender is gone: no line can ever arrive again.
+            Err(TryRecvError::Disconnected) => {
+                finished = true;
+                break;
+            }
+            // Nothing buffered, but the worker may still be busy.
+            Err(TryRecvError::Empty) => break,
+        }
+    }
+    (lines, finished)
+}
+
+fn drain(shared: &Shared, rx: &Receiver<Line>) -> gtk4::glib::ControlFlow {
+    let (lines, finished) = receive(rx);
+    let selection = shared.borrow();
+    for line in lines {
+        match line {
+            Line::Step(text) | Line::Done(text) => selection.progress(&text),
+            Line::Failed(text) => selection.failed(&text),
+        }
+    }
+    if finished {
+        selection.busy.release();
+        gtk4::glib::ControlFlow::Break
+    } else {
+        gtk4::glib::ControlFlow::Continue
     }
 }
 
@@ -212,5 +455,129 @@ impl Picker {
 
     pub fn widget(&self) -> &gtk4::Widget {
         self.root.upcast_ref()
+    }
+}
+
+#[cfg(test)]
+mod receive_tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    fn text(line: &Line) -> &str {
+        match line {
+            Line::Step(t) | Line::Done(t) | Line::Failed(t) => t,
+        }
+    }
+
+    /// The bug this module exists for: a dropped sender used to spin here for
+    /// ever, and the test hangs instead of failing, so it runs on its own thread
+    /// with a deadline. A green suite is not enough; it has to come back at all.
+    #[test]
+    fn a_disconnected_sender_ends_the_wait_promptly() {
+        let (tx, rx) = mpsc::channel::<Line>();
+        drop(tx);
+
+        let (tx, probe) = mpsc::channel::<(Vec<Line>, bool)>();
+        std::thread::spawn(move || {
+            let (lines, finished) = receive(&rx);
+            let _ = tx.send((lines, finished));
+        });
+
+        let (lines, finished) = probe
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("receive() hung on a disconnected channel");
+        assert!(finished, "a gone worker means the operation is over");
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn a_live_worker_with_nothing_to_say_is_not_finished() {
+        let (tx, rx) = mpsc::channel::<Line>();
+        let (lines, finished) = receive(&rx);
+        assert!(lines.is_empty());
+        assert!(!finished, "the worker is still running, so keep waiting");
+        drop(tx);
+    }
+
+    #[test]
+    fn buffered_steps_are_all_delivered() {
+        let (tx, rx) = mpsc::channel::<Line>();
+        tx.send(Line::Step("one".into())).unwrap();
+        tx.send(Line::Step("two".into())).unwrap();
+        let (lines, finished) = receive(&rx);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(text(&lines[0]), "one");
+        assert_eq!(text(&lines[1]), "two");
+        assert!(!finished);
+        drop(tx);
+    }
+
+    #[test]
+    fn the_final_line_ends_the_wait_and_leaves_nothing_pending() {
+        let (tx, rx) = mpsc::channel::<Line>();
+        tx.send(Line::Step("copying".into())).unwrap();
+        tx.send(Line::Done("verified".into())).unwrap();
+        // A line after the final one is not expected, but if one were ever sent
+        // the wait must still end rather than hang on the dropped sender.
+        let (lines, finished) = receive(&rx);
+        assert!(finished);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(text(&lines[1]), "verified");
+        drop(tx);
+    }
+
+    #[test]
+    fn a_failure_also_ends_the_wait() {
+        let (tx, rx) = mpsc::channel::<Line>();
+        tx.send(Line::Failed("disk is full".into())).unwrap();
+        let (lines, finished) = receive(&rx);
+        assert!(finished, "a failed operation must release the panel");
+        assert_eq!(text(&lines[0]), "disk is full");
+    }
+
+    #[test]
+    fn repeated_drains_after_the_end_stay_finished() {
+        // The GTK timeout may fire once more after the last line, and the source
+        // is only removed once it returns Break. It must not start spinning.
+        let (tx, rx) = mpsc::channel::<Line>();
+        tx.send(Line::Done("done".into())).unwrap();
+        drop(tx);
+        for _ in 0..5 {
+            let (_, finished) = receive(&rx);
+            assert!(finished);
+        }
+    }
+}
+
+#[cfg(test)]
+mod busy_tests {
+    use super::Busy;
+
+    #[test]
+    fn a_second_switch_is_refused_while_one_is_running() {
+        let busy = Busy::default();
+        assert!(busy.claim());
+        assert!(!busy.claim(), "a second switch must not start");
+        assert!(!busy.claim());
+    }
+
+    #[test]
+    fn the_switch_can_be_taken_again_after_it_finishes() {
+        let busy = Busy::default();
+        assert!(busy.claim());
+        busy.release();
+        assert!(busy.claim());
+    }
+
+    #[test]
+    fn a_refused_switch_does_not_release_the_one_already_running() {
+        // The refused caller must not touch the flag, or a third click would be
+        // let through while the first switch is still running.
+        let busy = Busy::default();
+        assert!(busy.claim());
+        assert!(!busy.claim());
+        assert!(!busy.claim());
+        busy.release();
+        assert!(busy.claim());
     }
 }

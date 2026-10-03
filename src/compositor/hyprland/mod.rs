@@ -23,6 +23,10 @@ impl Compositor for Hyprland {
         shells::ALL
     }
 
+    fn config_dir(&self) -> &'static str {
+        ".config/hypr"
+    }
+
     fn marker_env(&self) -> &'static str {
         "HYPRLAND_INSTANCE_SIGNATURE"
     }
