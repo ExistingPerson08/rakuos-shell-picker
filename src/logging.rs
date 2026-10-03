@@ -169,12 +169,19 @@ pub fn startup_lines(detection: &Detection) -> Vec<String> {
     for compositor in crate::compositor::all() {
         let mut parts = Vec::new();
         for shell in compositor.shells() {
+            // Vocabulary matches status_label() on the card, so the log and the
+            // screen never disagree about the same shell. The origin is worth
+            // spelling out: a shell in the base image and one rum put in the
+            // overlay fail in completely different ways.
             let state = if shell.running() {
-                "running"
+                "running".to_string()
             } else if shell.installed() {
-                "installed"
+                match shell.origin() {
+                    Some(origin) => format!("installed, {}", origin.label()),
+                    None => "installed".to_string(),
+                }
             } else {
-                "available"
+                "not installed".to_string()
             };
             parts.push(format!("{}={state}", shell.id));
         }

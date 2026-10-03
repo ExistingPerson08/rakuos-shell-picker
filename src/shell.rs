@@ -8,8 +8,9 @@
 //! `compositor::hyprland::shells` and `compositor::niri::shells`, because the
 //! same shell name may not exist for every compositor.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StartMechanism {
@@ -27,11 +28,48 @@ pub enum StartMechanism {
     DirectProcess,
 }
 
+/// Where a package lives on a RakuOS system.
+///
+/// RakuOS keeps the read-only base image and the writable overlay in two
+/// separate rpm databases, and `rpm -q` reads only the base one. A package that
+/// `rum install` placed in the overlay is therefore reported as not installed by
+/// `rpm -q`, which is why this is an enum instead of the bool the old code had.
+///
+/// Verified equivalent to `rum origin` on all three cases, without rum touching
+/// the network.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Availability {
-    Available,
+pub enum Origin {
+    /// Part of the read-only base image.
+    Base,
+    /// Installed into the overlay after the image was built.
+    Overlay,
     NotInstalled,
-    NoPackage,
+}
+
+impl Origin {
+    pub fn installed(self) -> bool {
+        !matches!(self, Origin::NotInstalled)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Origin::Base => "base image",
+            Origin::Overlay => "overlay",
+            Origin::NotInstalled => "not installed",
+        }
+    }
+
+    /// The verdict from two independent database lookups.
+    ///
+    /// Base wins over overlay, matching what `rum origin` reports, so a package
+    /// that somehow exists in both is not described twice.
+    fn from_flags(base: bool, overlay: bool) -> Self {
+        match (base, overlay) {
+            (true, _) => Origin::Base,
+            (false, true) => Origin::Overlay,
+            (false, false) => Origin::NotInstalled,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -67,22 +105,16 @@ impl Shell {
         which(self.binary).is_some()
     }
 
-    pub fn package_installed(&self) -> Option<bool> {
-        self.package.map(rpm_installed)
-    }
-
-    pub fn availability(&self) -> Availability {
-        if self.binary_present() {
-            return Availability::Available;
-        }
-        match self.package_installed() {
-            Some(_) => Availability::NotInstalled,
-            None => Availability::NoPackage,
-        }
+    /// Where this shell's package lives, if it has one.
+    ///
+    /// `None` for shells that are not packaged at all, where a binary in `PATH`
+    /// is the only evidence there is.
+    pub fn origin(&self) -> Option<Origin> {
+        self.package.map(package_origin)
     }
 
     pub fn installed(&self) -> bool {
-        self.package_installed().unwrap_or(false) || self.binary_present()
+        self.origin().is_some_and(Origin::installed) || self.binary_present()
     }
 
     pub fn config_path(&self) -> Option<PathBuf> {
@@ -132,12 +164,48 @@ fn which(bin: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-fn rpm_installed(pkg: &str) -> bool {
-    Command::new("rpm")
-        .args(["-q", pkg])
+/// The overlay rpm database path, as reported by `rum paths`.
+///
+/// Read from the system rather than hardcoded, because that path is an
+/// implementation detail of the running image. Resolved once per process.
+fn overlay_dbpath() -> Option<&'static Path> {
+    static DB: OnceLock<Option<PathBuf>> = OnceLock::new();
+    DB.get_or_init(|| {
+        let out = Command::new("rum").args(["paths"]).output().ok()?;
+        parse_overlay_dbpath(&String::from_utf8_lossy(&out.stdout))
+    })
+    .as_deref()
+}
+
+/// Pull the overlay database path out of `rum paths` output.
+fn parse_overlay_dbpath(text: &str) -> Option<PathBuf> {
+    text.lines()
+        .find_map(|line| line.trim().strip_prefix("overlay rpmdb:"))
+        .map(|path| PathBuf::from(path.trim()))
+        .filter(|path| path.is_absolute())
+}
+
+/// Is `pkg` present in the rpm database at `dbpath`?
+///
+/// `None` means the default database, which on RakuOS is the base image.
+fn in_rpmdb(dbpath: Option<&Path>, pkg: &str) -> bool {
+    let mut cmd = Command::new("rpm");
+    if let Some(db) = dbpath {
+        cmd.arg("--dbpath").arg(db);
+    }
+    cmd.args(["-q", pkg])
         .output()
-        .map(|o| o.status.success())
+        .map(|out| out.status.success())
         .unwrap_or(false)
+}
+
+/// Whether the package is installed, and where it came from if it is.
+///
+/// Gives the same answer as `rum origin` without rum touching the network: that
+/// command spends several seconds refreshing repository metadata, and this runs
+/// once per shell every time the card list is built.
+pub fn package_origin(pkg: &str) -> Origin {
+    Origin::from_flags(in_rpmdb(None, pkg), in_rpmdb(overlay_dbpath(), pkg))
 }
 
 fn process_running(name: &str) -> bool {
@@ -155,4 +223,62 @@ fn process_running(name: &str) -> bool {
             })
         })
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_package_in_the_base_image_wins() {
+        assert_eq!(Origin::from_flags(true, false), Origin::Base);
+        assert_eq!(Origin::from_flags(true, true), Origin::Base);
+        assert!(Origin::Base.installed());
+    }
+
+    #[test]
+    fn an_overlay_only_package_counts_as_installed() {
+        assert_eq!(Origin::from_flags(false, true), Origin::Overlay);
+        assert!(Origin::Overlay.installed());
+    }
+
+    #[test]
+    fn a_package_in_neither_database_is_not_installed() {
+        assert_eq!(Origin::from_flags(false, false), Origin::NotInstalled);
+        assert!(!Origin::NotInstalled.installed());
+    }
+
+    #[test]
+    fn the_overlay_database_path_comes_from_rum_paths() {
+        // Real output of `rum paths` on a split RakuOS system.
+        let text = "mode: split (RakuOS overlay)\n\
+                    base snapshot rpmdb: /usr/share/rpm\n\
+                    overlay rpmdb: /var/lib/rakuos/rum-rpmdb\n\
+                    overlay upperdir: /var/lib/rakuos/overlay/upper\n";
+        assert_eq!(
+            parse_overlay_dbpath(text),
+            Some(PathBuf::from("/var/lib/rakuos/rum-rpmdb"))
+        );
+    }
+
+    #[test]
+    fn a_non_rakuos_system_yields_no_overlay_path() {
+        // Without an overlay line we must not guess a path: querying the wrong
+        // database would report every overlay package as missing.
+        assert_eq!(parse_overlay_dbpath("mode: normal\n"), None);
+        assert_eq!(parse_overlay_dbpath(""), None);
+    }
+
+    #[test]
+    fn a_relative_overlay_path_is_not_trusted() {
+        assert_eq!(parse_overlay_dbpath("overlay rpmdb: rum-rpmdb\n"), None);
+        assert_eq!(parse_overlay_dbpath("overlay rpmdb:\n"), None);
+    }
+
+    #[test]
+    fn every_origin_says_where_it_came_from() {
+        assert_eq!(Origin::Base.label(), "base image");
+        assert_eq!(Origin::Overlay.label(), "overlay");
+        assert_eq!(Origin::NotInstalled.label(), "not installed");
+    }
 }
