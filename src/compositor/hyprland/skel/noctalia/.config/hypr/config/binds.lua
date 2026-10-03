@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════
--- Key Bindings
+-- Key Bindings — Hyprland Noctalia
 -- ═══════════════════════════════════════════
 
 local M = "SUPER"
@@ -204,9 +204,8 @@ hl.bind(M .. " + code:86", function() zoomfunction(0.3) end, { repeating = true,
 -- ───────────────────────────────────────────
 -- GloView (Mission Control overview)
 --
--- Disabled by default: GloView is not installed by default. Run
--- "rum install gloview-git" (the package is in the rakuos repository, no extra
--- repo needed) and uncomment the matching hl.plugin.load in hyprland.lua.
+-- Disabled while the plugin's repo is not ready; gloview-git is out of the
+-- package list. hyprland.lua has the matching hl.plugin.load commented out.
 -- The guard was already here, so this block going dark costs nothing -- it
 -- simply registers nothing once hl.plugin.gloview is absent.
 -- if hl.plugin.gloview then

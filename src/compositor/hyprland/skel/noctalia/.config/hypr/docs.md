@@ -91,6 +91,7 @@ The scripts called by these binds live in `scripts/`:
 | `qr.sh` | Scan a QR code → clipboard |
 | `lens.sh` | Google Lens (region) — **uploads to a public host, do not use it for sensitive data** |
 | `focus-dir.sh` / `swap-dir.sh` | Directional focus/swap, adapting to the active layout |
+| `gamemode.sh` | Toggle decorative effects (max FPS / restore) |
 | `lock-and-suspend.sh` | Lock, then suspend |
 
 ---
@@ -113,140 +114,13 @@ is not here** — that lives in `monitors.lua`.
 
 ---
 
-## Border and window colors?
-
-**Not in `decorations.lua`** — that file only covers gaps, rounding, opacity,
-blur and shadow. Colors live in Hyprland's `col` groups. By default this skel
-leaves them alone, so borders and group bars use Hyprland's own colours.
-
-Two ways to set them:
-
-**Follow the Noctalia theme** — Noctalia writes border colors from the active
-palette into `noctalia.lua`. Both steps, and the order they have to happen in,
-are in *Letting Noctalia drive the colors* below.
-
-**Set them by hand** in `hyprland.lua`:
-
-```lua
-hl.config({
-    general = {
-        col = {
-            active_border   = "rgb(a9aefe)",
-            inactive_border = "rgb(070722)",
-        },
-    },
-    group = {
-        col = {
-            border_active   = "rgb(a9aefe)",
-            border_inactive = "rgb(070722)",
-        },
-    },
-})
-```
-
-Use the `rgb(rrggbb)` form — that is what Noctalia's generated `noctalia.lua`
-emits, so it is known to parse. Hyprland's own `0xAARRGGBB` notation is not
-verified to be accepted here, because `hl` wraps the value rather than passing
-it straight through.
-
-That is the same `col` structure the Noctalia template emits. The block at the
-end of `hyprland.lua` is a gradient variant (`colors = { primary, secondary }`
-plus `angle`), which is the one that ships commented out.
-
----
-
-## Letting Noctalia drive the colors
-
-Out of the box Noctalia themes the app side only — GTK3, GTK4 and Qt. Hyprland's
-own borders and your terminal keep their built-in colors. That is deliberate: a
-border theme you did not ask for is harder to debug than a missing one, and the
-two halves rarely settle on the same palette.
-
-Both are opt-in.
-
-**Easiest — use the Noctalia GUI.** Settings → `theme templates` → tick under
-`Built-in templates`, then run `noctalia msg templates-apply` (or restart
-Noctalia) to push it out. No file editing.
-
-**Or edit `config.toml`** — `~/.config/noctalia/config.toml`, one line:
-
-```toml
-[theme.templates]
-builtin_ids = [ "gtk3", "gtk4", "qt" ]
-```
-
-### Terminal color only
-
-Add `"ghostty"` and change nothing else. Noctalia regenerates
-`~/.config/ghostty/themes/noctalia` and restores the `theme = noctalia` line in
-your `ghostty/config` by itself. Take effect with `CTRL + SHIFT + ,`
-(Ghostty's default `reload_config`).
-
-```toml
-builtin_ids = [ "gtk3", "gtk4", "qt", "ghostty" ]
-```
-
-### Borders as well
-
-Add `"hyprland"` **and** uncomment the block at the end of `hyprland.lua`. Those
-are two different files and neither half works alone:
-
-```toml
-builtin_ids = [ "gtk3", "gtk4", "hyprland", "qt" ]
-```
-
-```lua
-local noct = require("noctalia")
-noct.apply_theme()
-hl.config({
-    general = {
-        col = {
-            active_border = {
-                colors = { noct.colors.primary, noct.colors.secondary },
-                angle = 45,
-            },
-        },
-    },
-})
-```
-
-Order matters:
-
-1. Edit `config.toml` first.
-2. **Wait a few seconds.** Noctalia watches that file and rewrites
-   `~/.config/hypr/noctalia.lua` on its own — no restart needed.
-3. Only then uncomment the block and run `hyprctl reload`.
-
-Skipping the wait is the one way to break this: `require("noctalia")` with the
-file missing is a hard config error. `hyprctl configerrors` is where you see it.
-If you already hit that, comment the block back out and reload — nothing else
-is damaged.
-
-### Turning it back off
-
-Reverse both edits. Noctalia deletes `noctalia.lua` and
-`~/.config/ghostty/themes/noctalia` by itself once their ids leave `builtin_ids`,
-so there is nothing left to clean up by hand. Re-comment the block in
-`hyprland.lua` as well, or the require fails on the next reload.
-
-```bash
-grep builtin_ids ~/.config/noctalia/config.toml
-ls ~/.config/hypr/noctalia.lua        # exists only while "hyprland" is enabled
-ls ~/.config/ghostty/themes/noctalia  # exists only while "ghostty" is enabled
-```
-
----
-
 ## Layouts and animations
 
 - **Layout** — `config/misc.lua`. The active layout is forced to `scrolling` on
   the last line. The `dwindle` / `master` / `swapsplit` values can be changed
   there.
 - **Layout presets** — `layouts/fair.lua` (automatic grid), `layouts/deck.lua`.
-  Both are `dofile`d by `hyprland.lua`, so they work with no extra setup. The
-  `SUPER + ALT + W` shortcut only opens the layout *picker*, and that needs the
-  optional `mindset/hypr-layouts` plugin described below — without the plugin
-  the shortcut does nothing and fails silently.
+  Reachable via `SUPER + ALT + W` (the Noctalia panel).
 - **Animations** — `config/animations.lua`. Switch preset by changing one line:
 
   ```lua
@@ -342,8 +216,7 @@ remove the package — they simply register nothing.
 | `config/autostart.lua` | Runs on Hyprland start (`noctalia`, clipboard history) |
 | `config/lid.lua` | Close the laptop lid → lock and suspend |
 | `config/environment.lua` | NVIDIA environment variables (commented out). If you use UWSM, edit `~/.config/uwsm/env` instead |
-| `noctalia.lua` | **Not shipped, and not generated by default.** Generated only while `"hyprland"` is in `builtin_ids`, and only useful once the block at the end of `hyprland.lua` is uncommented too. Do both or neither: the require fails without the file, the file does nothing without the require. Full steps in *Letting Noctalia drive the colors*. |
-| `themes/noctalia` (under `~/.config/ghostty/`) | Same deal for the terminal: appears while `"ghostty"` is in `builtin_ids`, and the `theme = noctalia` line it pairs with is restored automatically. |
+| `noctalia.lua` | **Generated** — theme colors. Overwritten whenever the theme changes in Noctalia |
 
 ---
 
@@ -355,17 +228,5 @@ Check first:
 hyprctl configerrors
 ```
 
-Then reload. `SUPER + SHIFT + R` is safe to use even in a broken state.
-
-**These files are not in git**, so `git checkout` will not bring them back. If
-the config is badly broken:
-
-```bash
-# look at what a pristine copy contains, without touching your own files
-ls -la /etc/skel/.config/hypr/
-
-# restore one file by hand
-cp /etc/skel/.config/hypr/config/binds.lua ~/.config/hypr/config/binds.lua
-```
-
-`/etc/skel` is the unmodified template, so it is the only reliable copy.
+Then reload. `SUPER + SHIFT + R` is safe to use even in a broken state, since
+`~/.config/hypr` can be restored from git.

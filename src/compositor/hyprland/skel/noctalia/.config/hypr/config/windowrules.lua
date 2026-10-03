@@ -62,9 +62,6 @@ hl.window_rule({ match = { class = "^(org\\.kde\\.keditfiletype)$" }, float = tr
 hl.window_rule({ match = { class = "^(org\\.kde\\.ark)$" }, size = { "max(monitor_w, monitor_h)*0.40", "min(monitor_w, monitor_h)*0.40" } })
 hl.window_rule({ match = { class = "^(.*satty.*)$", title = "^(Satty)$" }, min_size = { "max(monitor_w, monitor_h)*0.35", "min(monitor_w, monitor_h)*0.35" }, float = true })
 hl.window_rule({ match = { class = "^(dev\\.)?(noctalia\\.Noctalia(\\.Settings)?)$" }, float = true, size = { "monitor_w*0.70", "monitor_h*0.70" } })
--- Shell picker: window persegi fixed (GUI_LAYOUT.md rasio ~1:1, ~800x800).
--- Harus float karena WM tiled akan memaksa ukuran kolom dan merusak rasio persegi.
-hl.window_rule({ match = { class = "^(org\\.rakuos\\.ShellPicker)$" }, float = true, size = { "806", "806" } })
 -- Dolphin sudah dihapus, penggantinya Nautilus. Rule float kecil di bawah
 -- ini hanya untuk dialog progres/arsip milik Dolphin ("Moving...",
 -- "Extract...", "Compress...", "Copying..."). Nautilus tidak punya dialog
