@@ -33,11 +33,28 @@ pub enum Action {
     RefuseUndetected { reason: String },
 }
 
+/// What the caller knows about a shell at the moment of the click.
+///
+/// Passing this in is what keeps `decide` pure. Asking the shell directly would
+/// mean a package query and a scan of /proc inside a routing decision, which is
+/// both slow to do twice and impossible to test without depending on whatever
+/// happens to be running on the machine.
+#[derive(Clone, Copy)]
+pub struct ShellState {
+    /// The package is installed, or an unpackaged shell is fully set up.
+    pub installed: bool,
+    /// A process for this shell is alive right now.
+    pub running: bool,
+    /// Any registered shell that is alive, named in the confirmation.
+    pub running_shell: Option<&'static Shell>,
+}
+
 /// Decide what a click means. No side effects.
 pub fn decide(
     detection: &Detection,
     compositor: &'static dyn Compositor,
     shell: &'static Shell,
+    state: ShellState,
 ) -> Action {
     // Compositor checks come first: a card on the wrong compositor must never
     // be reachable, whatever state the shell itself is in.
@@ -58,19 +75,19 @@ pub fn decide(
         _ => {}
     }
 
-    if shell.running() {
+    if state.running {
         return Action::AlreadyRunning {
             shell: shell.display_name.to_string(),
         };
     }
 
-    if !shell.installed() {
+    if !state.installed {
         return Action::NotInstalled {
             shell: shell.display_name.to_string(),
         };
     }
 
-    let from = running_shell(detection).map(|s| s.display_name.to_string());
+    let from = state.running_shell.map(|s| s.display_name.to_string());
 
     Action::ConfirmSwitch {
         from,
@@ -79,7 +96,7 @@ pub fn decide(
 }
 
 /// The shell that is alive right now, if any of the registered ones is.
-fn running_shell(_detection: &Detection) -> Option<&'static Shell> {
+pub fn running_shell() -> Option<&'static Shell> {
     // Look across every compositor so a running shell is still recognised when
     // the tab being viewed is a different one.
     crate::compositor::all()
@@ -294,6 +311,33 @@ mod tests {
         logo: None,
     };
 
+    /// An installed shell that is not running: the one case a click accepts.
+    fn ready() -> ShellState {
+        ShellState {
+            installed: true,
+            running: false,
+            running_shell: Some(&ALREADY_RUNNING),
+        }
+    }
+
+    /// Nothing to switch to.
+    fn absent() -> ShellState {
+        ShellState {
+            installed: false,
+            running: false,
+            running_shell: None,
+        }
+    }
+
+    /// Already the shell on screen.
+    fn busy() -> ShellState {
+        ShellState {
+            installed: true,
+            running: true,
+            running_shell: Some(&ALREADY_RUNNING),
+        }
+    }
+
     fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
             .iter()
@@ -336,7 +380,7 @@ mod tests {
     fn click_on_a_switchable_shell_asks_for_confirmation() {
         let detection = crate::compositor::detect_with(&hyprland_session());
         assert_eq!(detection.current, Some("hyprland"));
-        let action = decide(&detection, hyprland(), &INSTALLED_IDLE);
+        let action = decide(&detection, hyprland(), &INSTALLED_IDLE, ready());
         assert!(
             matches!(action, Action::ConfirmSwitch { .. }),
             "expected a confirmation, got {action:?}"
@@ -346,7 +390,7 @@ mod tests {
     #[test]
     fn click_on_a_different_compositor_is_refused_outright() {
         let detection = crate::compositor::detect_with(&hyprland_session());
-        let action = decide(&detection, niri(), &INSTALLED_IDLE);
+        let action = decide(&detection, niri(), &INSTALLED_IDLE, ready());
         assert_eq!(
             action,
             Action::RefuseCrossCompositor {
@@ -361,14 +405,14 @@ mod tests {
         // A shell that is not even installed, clicked on the wrong compositor,
         // must still be refused for the compositor reason.
         let detection = crate::compositor::detect_with(&hyprland_session());
-        let action = decide(&detection, niri(), &NOT_INSTALLED);
+        let action = decide(&detection, niri(), &NOT_INSTALLED, absent());
         assert!(matches!(action, Action::RefuseCrossCompositor { .. }));
     }
 
     #[test]
     fn uninstalled_shell_does_not_offer_to_switch() {
         let detection = crate::compositor::detect_with(&hyprland_session());
-        let action = decide(&detection, hyprland(), &NOT_INSTALLED);
+        let action = decide(&detection, hyprland(), &NOT_INSTALLED, absent());
         assert!(
             matches!(action, Action::NotInstalled { .. }),
             "expected not-installed, got {action:?}"
@@ -378,7 +422,7 @@ mod tests {
     #[test]
     fn running_shell_reports_already_running() {
         let detection = crate::compositor::detect_with(&hyprland_session());
-        let action = decide(&detection, hyprland(), &ALREADY_RUNNING);
+        let action = decide(&detection, hyprland(), &ALREADY_RUNNING, busy());
         assert!(
             matches!(action, Action::AlreadyRunning { .. }),
             "expected already-running, got {action:?}"
@@ -389,7 +433,7 @@ mod tests {
     fn undetected_compositor_refuses_everything() {
         let detection = crate::compositor::detect_with(&env(&[]));
         assert_eq!(detection.current, None);
-        let action = decide(&detection, hyprland(), &INSTALLED_IDLE);
+        let action = decide(&detection, hyprland(), &INSTALLED_IDLE, ready());
         assert!(
             matches!(action, Action::RefuseUndetected { .. }),
             "expected refusal, got {action:?}"
@@ -402,7 +446,7 @@ mod tests {
         let detection =
             crate::compositor::detect_with(&env(&[("HYPRLAND_INSTANCE_SIGNATURE", "test")]));
         assert!(matches!(
-            decide(&detection, hyprland(), &INSTALLED_IDLE),
+            decide(&detection, hyprland(), &INSTALLED_IDLE, ready()),
             Action::RefuseUndetected { .. }
         ));
     }
@@ -412,10 +456,10 @@ mod tests {
         // The point of the gate: only one outcome may lead to the backend.
         let detection = crate::compositor::detect_with(&hyprland_session());
         let outcomes = [
-            decide(&detection, hyprland(), &INSTALLED_IDLE),
-            decide(&detection, hyprland(), &NOT_INSTALLED),
-            decide(&detection, hyprland(), &ALREADY_RUNNING),
-            decide(&detection, niri(), &INSTALLED_IDLE),
+            decide(&detection, hyprland(), &INSTALLED_IDLE, ready()),
+            decide(&detection, hyprland(), &NOT_INSTALLED, absent()),
+            decide(&detection, hyprland(), &ALREADY_RUNNING, busy()),
+            decide(&detection, niri(), &INSTALLED_IDLE, ready()),
         ];
         let confirmations = outcomes
             .iter()
@@ -479,7 +523,7 @@ mod tests {
 
         // Hyprland running: the Niri page is blocked.
         assert_eq!(
-            decide(&hyprland_up, niri(), &INSTALLED_IDLE),
+            decide(&hyprland_up, niri(), &INSTALLED_IDLE, ready()),
             Action::RefuseCrossCompositor {
                 target: "niri",
                 current: "hyprland"
@@ -488,7 +532,7 @@ mod tests {
 
         // Niri running: the Hyprland page is blocked, with the ids swapped.
         assert_eq!(
-            decide(&niri_up, hyprland(), &INSTALLED_IDLE),
+            decide(&niri_up, hyprland(), &INSTALLED_IDLE, ready()),
             Action::RefuseCrossCompositor {
                 target: "hyprland",
                 current: "niri"
@@ -508,14 +552,14 @@ mod tests {
 
             assert!(
                 matches!(
-                    decide(&detection, running_page, &INSTALLED_IDLE),
+                    decide(&detection, running_page, &INSTALLED_IDLE, ready()),
                     Action::ConfirmSwitch { .. }
                 ),
                 "{running} page should offer a switch when {running} is running"
             );
             assert!(
                 matches!(
-                    decide(&detection, blocked_page, &INSTALLED_IDLE),
+                    decide(&detection, blocked_page, &INSTALLED_IDLE, ready()),
                     Action::RefuseCrossCompositor { .. }
                 ),
                 "{blocked} page should be blocked when {running} is running"

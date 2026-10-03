@@ -114,7 +114,14 @@ impl Selection {
         compositor: &'static dyn Compositor,
         shell: &'static crate::shell::Shell,
     ) {
-        let action = dialog::decide(&self.detection, compositor, shell);
+        // State is gathered here, once per click, so the routing below stays a
+        // pure function of it.
+        let state = dialog::ShellState {
+            installed: shell.installed(),
+            running: shell.running(),
+            running_shell: dialog::running_shell(),
+        };
+        let action = dialog::decide(&self.detection, compositor, shell, state);
         match action {
             dialog::Action::ConfirmSwitch { .. } => self.highlight(shell.id),
             _ => self.clear_highlight(),

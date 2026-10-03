@@ -114,7 +114,12 @@ impl Shell {
     }
 
     pub fn installed(&self) -> bool {
-        self.origin().is_some_and(Origin::installed) || self.binary_present()
+        installed_from(self.origin(), self.binary_present(), self.config_present())
+    }
+
+    /// Has this shell actually been set up on this machine?
+    pub fn config_present(&self) -> bool {
+        self.config_path().is_some_and(|dir| dir.is_dir())
     }
 
     pub fn config_path(&self) -> Option<PathBuf> {
@@ -162,6 +167,22 @@ fn which(bin: &str) -> Option<PathBuf> {
     std::env::split_paths(&path)
         .map(|dir| dir.join(bin))
         .find(|p| p.is_file())
+}
+
+/// Whether a shell counts as installed, from the three facts we can observe.
+///
+/// Split out from the subprocess calls so the rules can be tested directly.
+fn installed_from(origin: Option<Origin>, binary: bool, config: bool) -> bool {
+    match origin {
+        Some(origin) => origin.installed() || binary,
+        // Nothing to ask about, so the binary has to carry the whole answer, and
+        // it cannot be trusted alone: installing DMS pulls in noctalia-qs, which
+        // puts quickshell in PATH, and Caelestia runs on that same runtime. The
+        // binary would then claim Caelestia is installed while its config
+        // directory does not exist. Requiring the config too keeps a shared
+        // runtime from standing in for a shell that was never set up.
+        None => binary && config,
+    }
 }
 
 /// The overlay rpm database path, as reported by `rum paths`.
@@ -280,5 +301,38 @@ mod tests {
         assert_eq!(Origin::Base.label(), "base image");
         assert_eq!(Origin::Overlay.label(), "overlay");
         assert_eq!(Origin::NotInstalled.label(), "not installed");
+    }
+
+    #[test]
+    fn a_packaged_shell_is_installed_when_its_package_says_so() {
+        assert!(installed_from(Some(Origin::Base), false, false));
+        assert!(installed_from(Some(Origin::Overlay), false, false));
+    }
+
+    #[test]
+    fn a_packaged_shell_with_a_stale_binary_still_counts() {
+        // The package was removed but the binary is still on disk. Treated as
+        // installed so a click attempts a switch instead of claiming there is
+        // nothing there.
+        assert!(installed_from(Some(Origin::NotInstalled), true, false));
+    }
+
+    #[test]
+    fn an_unpackaged_shell_needs_more_than_its_runtime() {
+        // quickshell exists because DMS dragged in noctalia-qs. Caelestia has no
+        // package and no config, so it is not installed.
+        assert!(!installed_from(None, true, false));
+    }
+
+    #[test]
+    fn an_unpackaged_shell_with_its_own_config_counts() {
+        assert!(installed_from(None, true, true));
+    }
+
+    #[test]
+    fn an_unpackaged_shell_without_a_known_config_can_never_install() {
+        // Ambxst has no config directory recorded, so there is no second fact to
+        // check and nothing to confirm a setup with.
+        assert!(!installed_from(None, false, false));
     }
 }
