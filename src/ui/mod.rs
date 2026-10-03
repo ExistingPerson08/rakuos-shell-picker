@@ -307,7 +307,13 @@ fn begin(
                     plan.stages.len(),
                     plan.command_line()
                 )));
-                match crate::switch::install(plan) {
+                // Every line the package manager prints goes to the panel as it
+                // arrives. An install that says nothing for a minute and a half
+                // is indistinguishable from one that has hung.
+                let mut echo = |text: &str| {
+                    let _ = tx.send(Line::Step(text.to_string()));
+                };
+                match crate::switch::install(plan, &mut echo) {
                     crate::switch::Install::Finished { stages, .. } => {
                         let _ = tx.send(Line::Step(format!("{stages} stage(s) installed")));
                         let _ = tx.send(Line::Done(format!(

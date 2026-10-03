@@ -321,7 +321,12 @@ pub enum Install {
 ///
 /// A stage that fails stops the plan. Later stages are not attempted, so a
 /// failure in the first one leaves nothing of the shell itself installed.
-pub fn install(plan: InstallPlan) -> Install {
+///
+/// `progress` is called with the package manager's own output as it arrives,
+/// not after the command returns. Without it the panel shows nothing at all for
+/// the length of the download, and a working install is indistinguishable from a
+/// hung one.
+pub fn install(plan: InstallPlan, progress: &mut dyn FnMut(&str)) -> Install {
     if plan
         .packages()
         .iter()
@@ -337,66 +342,67 @@ pub fn install(plan: InstallPlan) -> Install {
 
     for (index, stage) in plan.stages.iter().enumerate() {
         let stage = *stage;
+        let number = index + 1;
         let missing: Vec<&str> = stage
             .iter()
             .copied()
             .filter(|p| !crate::shell::package_origin(p).installed())
             .collect();
+
         if missing.is_empty() {
-            crate::logging::info(&format!(
-                "stage {} already satisfied: {}",
-                index + 1,
+            progress(&format!(
+                "stage {number} of {}: {} already installed, skipping",
+                plan.stages.len(),
                 stage.join(", ")
             ));
             continue;
         }
 
         let line = plan.stage_command_line(&missing);
-        crate::logging::info(&format!(
-            "stage {} of {}: {line}",
-            index + 1,
-            plan.stages.len()
+        crate::logging::info(&format!("stage {number} of {}: {line}", plan.stages.len()));
+        progress(&format!("stage {number} of {}: {line}", plan.stages.len()));
+        progress(&format!(
+            "authorizing stage {number}; a password prompt should appear"
         ));
 
         let mut command = Command::new(plan.program);
         command.args(plan.args).args(&missing);
         command.env("LANG", "C");
 
-        let result = match command.output() {
+        let (status, text) = match run_streaming(&mut command, &mut *progress) {
             Ok(result) => result,
             Err(error) => {
+                progress(&format!("could not start the installer: {error}"));
                 return Install::Failed {
-                    stage: index + 1,
+                    stage: number,
                     status: format!("could not run {}", plan.program),
                     output: error.to_string(),
-                }
+                };
             }
         };
 
-        let text = String::from_utf8_lossy(&result.stdout).to_string()
-            + &String::from_utf8_lossy(&result.stderr);
         if !output.is_empty() && !text.is_empty() {
             output.push('\n');
         }
         output.push_str(&text);
 
-        if result.status.success() {
+        if status.success() {
             ran += 1;
+            progress(&format!("stage {number} finished"));
             continue;
         }
-        if looks_dismissed(result.status.code(), &text) {
+        if looks_dismissed(status.code(), &text) {
             crate::logging::warn("the polkit prompt was dismissed");
-            return Install::Dismissed { stage: index + 1 };
+            progress(&format!("stage {number} was not authorized"));
+            return Install::Dismissed { stage: number };
         }
         crate::logging::error(&format!(
-            "stage {} of {} failed: {}",
-            index + 1,
-            plan.stages.len(),
-            result.status
+            "stage {number} of {} failed: {status}",
+            plan.stages.len()
         ));
         return Install::Failed {
-            stage: index + 1,
-            status: result.status.to_string(),
+            stage: number,
+            status: status.to_string(),
             output: text,
         };
     }
@@ -405,6 +411,119 @@ pub fn install(plan: InstallPlan) -> Install {
         stages: ran,
         output,
     }
+}
+
+/// How often to say that something is still happening when the installer is
+/// quiet. Long enough not to spam, short enough that silence never reads as a
+/// hang.
+const HEARTBEAT_SECS: u64 = 10;
+
+/// Run `command`, forwarding its output to `progress` as it arrives.
+///
+/// `Command::output` would be simpler but it reads to the end, so nothing reaches
+/// the panel until the whole transaction is done. Two reader threads and a
+/// heartbeat all push into one channel, and the caller's callback is only ever
+/// touched from this thread, which keeps the panel single-threaded.
+fn run_streaming(
+    command: &mut Command,
+    progress: &mut dyn FnMut(&str),
+) -> std::io::Result<(std::process::ExitStatus, String)> {
+    use std::io::{BufRead, BufReader};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    let mut child = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    let (tx, rx) = mpsc::channel::<String>();
+    let done = std::sync::Arc::new(AtomicBool::new(false));
+
+    let spawn_reader = |stream: Box<dyn std::io::Read + Send>| {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                if tx.send(line).is_err() {
+                    return;
+                }
+            }
+        });
+    };
+    if let Some(out) = child.stdout.take() {
+        spawn_reader(Box::new(out));
+    }
+    if let Some(err) = child.stderr.take() {
+        spawn_reader(Box::new(err));
+    }
+    // Says "still here" on a timer, because a download can go quiet for a while
+    // and dnf only prints when it has something new to say.
+    let beat = {
+        let done = done.clone();
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            while !done.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_secs(HEARTBEAT_SECS));
+                if done.load(Ordering::Relaxed) {
+                    return;
+                }
+                if tx
+                    .send(format!(
+                        "  still installing ({}s)",
+                        started.elapsed().as_secs()
+                    ))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        })
+    };
+
+    drop(tx);
+
+    let mut text = String::new();
+    let mut silence = 0u32;
+    let status = loop {
+        match rx.recv_timeout(Duration::from_millis(500)) {
+            Ok(line) => {
+                silence = 0;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                progress(&line);
+                text.push_str(&line);
+                text.push('\n');
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                silence += 1;
+                if let Some(status) = child.try_wait()? {
+                    break status;
+                }
+                // Ten seconds of nothing from the installer is worth mentioning
+                // even when the heartbeat has not fired yet.
+                if silence as u64 * 500 >= HEARTBEAT_SECS * 1000 {
+                    silence = 0;
+                    progress("  still installing");
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                break child.wait()?;
+            }
+        }
+    };
+
+    done.store(true, Ordering::Relaxed);
+    let _ = beat.join();
+    while let Ok(line) = rx.try_recv() {
+        progress(&line);
+        text.push_str(&line);
+        text.push('\n');
+    }
+
+    Ok((status, text))
 }
 
 /// Did this exit mean "the user said no", rather than "it broke"?
@@ -469,7 +588,7 @@ mod install_tests {
             plan.stage_command_line(&["quickshell-git"]),
             "pkexec rum install -y quickshell-git"
         );
-        assert!(!plan.stage_command_line(&plan.stages[0]).contains("dms"));
+        assert!(!plan.stage_command_line(plan.stages[0]).contains("dms"));
     }
 }
 
@@ -773,5 +892,48 @@ mod prepare_tests {
             println!("  absent   {key}");
         }
         assert!(prepared.backup.verify().is_ok());
+    }
+
+    #[test]
+    fn installer_output_arrives_before_the_command_finishes() {
+        // The whole point: a user must see the installer working while it works.
+        // With `Command::output` this assertion fails, because nothing is reported
+        // until the process has already exited.
+        let mut command = Command::new("sh");
+        command.args(["-c", "echo first; sleep 0.4; echo second"]);
+        let mut seen: Vec<String> = Vec::new();
+        let (status, text) =
+            run_streaming(&mut command, &mut |line| seen.push(line.to_string())).unwrap();
+
+        assert!(status.success(), "sh exited {status}");
+        assert_eq!(seen, vec!["first".to_string(), "second".to_string()]);
+        assert!(text.contains("first") && text.contains("second"));
+    }
+
+    #[test]
+    fn a_failing_installer_is_reported_with_its_own_words() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "echo 'No match for argument: nope' >&2; exit 1"]);
+        let mut seen: Vec<String> = Vec::new();
+        let (status, text) =
+            run_streaming(&mut command, &mut |line| seen.push(line.to_string())).unwrap();
+
+        assert!(!status.success());
+        assert!(
+            seen.iter().any(|l| l.contains("No match")),
+            "stderr must reach the panel, got {seen:?}"
+        );
+        assert!(text.contains("No match"));
+    }
+
+    #[test]
+    fn an_installer_that_says_nothing_still_finishes() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 0"]);
+        let mut seen: Vec<String> = Vec::new();
+        let (status, _) =
+            run_streaming(&mut command, &mut |line| seen.push(line.to_string())).unwrap();
+        assert!(status.success());
+        assert!(seen.is_empty(), "nothing to report is not an error");
     }
 }
