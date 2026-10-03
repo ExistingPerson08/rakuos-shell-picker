@@ -164,29 +164,67 @@ Urutan satu-satunya yang boleh dipakai:
                 diketahui, dan tidak ada shell asing yang sedang hidup
  2. preflight : environment + start mechanism siap (binary, unit systemd, atau
                 file autostart benar-benar ada)
- 3. BACKUP    : config shell yang AKTIF -> backups/<waktu>-<compositor>-<shell>/
-                (menyalin, bukan memindahkan) + metadata.toml
+ 3. BACKUP    : delapan path di bawah, disalin ke
+                backups/<waktu>-<compositor>-<shell>/ lalu DIBACA ULANG untuk
+                dicocokkan dengan manifest
                                             <- gagal di sini, switch dibatalkan
  4. catat state "sedang berganti"           -> supaya sesi bisa dipulihkan
- 5. seed      : config target HANYA kalau belum ada
- 6. stop      : shell lama diberi SIGTERM -> ditunggu -> batas waktu -> kill -9
+ 5. dependency : paket target dan seluruh yang ikutannya dicek dulu (rum, tanpa
+                mengubah apa pun)
+ 6. INSTALL   : pkexec rum install -y <paket>, hanya kalau memang belum ada
+ 7. terapkan skel : config milik shell diganti penuh; hypr/uwsm hanya fragment
+ 8. stop      : shell lama diberi SIGTERM -> ditunggu -> batas waktu -> kill -9
                 hanya sebagai upaya terakhir
- 7. start     : shell baru, sesuai StartMechanism-nya
- 8. verify    : shell baru benar-benar hidup dalam batas waktu
- 9. state     : tulis active/previous
-10. ROLLBACK  : kalau langkah 7/8 gagal, start lagi shell lama dan kembalikan
+ 9. start     : shell baru, sesuai StartMechanism-nya
+10. verify    : shell baru benar-benar hidup dalam batas waktu
+11. state     : tulis active/previous
+12. ROLLBACK  : kalau langkah 9/10 gagal, start lagi shell lama dan kembalikan
                 config dari backup
 ```
 
-Langkah 5 bukan "menyalin config ke home". Kalau `~/.config/<target>` sudah ada,
-langkah itu dilewati seluruhnya. Config milik user tidak pernah ditimpa, dan
-reset ke default adalah tindakan terpisah dengan konfirmasi sendiri, bukan
-bagian dari switch.
+Backup selalu **lebih dulu**, sebelum satu pun langkah yang menulis. Backup
+hanya membaca, jadi tidak ada ruginya kalau ternyata langkah berikutnya batal.
+Install adalah langkah pertama yang menyentuh sistem, jadi ia diletakkan
+setelah semua langkah yang masih boleh menolak.
+
+### Yang di-backup
+
+Delapan path, relatif terhadap `$HOME`:
+
+```
+.config/gtk-3.0            bersama     milik sesi, bukan milik shell
+.config/gtk-4.0            bersama
+.config/hypr               bersama     hanya lewat fragment, tidak pernah utuh
+.config/qt5ct              bersama
+.config/qt6ct              bersama
+.config/uwsm               bersama     hanya env fragment
+.config/noctalia           shell       keluar
+.local/state/noctalia      shell       keluar
+```
+
+`~/.local/state/noctalia` ikut karena sebagian besar setup Noctalia ada di
+sana: 389 file, bukan config ringan. Path yang tidak ada dicatat sebagai
+`absent`, bukan dianggap gagal, supaya saat restore "tidak pernah ada" bisa
+dibedakan dari "hilang".
+
+### Apa yang boleh ditimpa, dan apa yang tidak
+
+- **Config milik shell itu sendiri boleh diganti penuh** setelah backup
+  terverifikasi. `~/.config/<shell>` dan `~/.local/state/<shell>` milik shell
+  tersebut, jadi menggantinya bukan merusak milik user.
+- **`~/.config/hypr` tidak pernah diganti penuh.** Isinya 45 file dan lebih dari
+  seribu baris config yang bukan tentang shell sama sekali. Picker hanya
+  menulis fragment miliknya sendiri di sana.
+- **gtk/qt ikut diganti** karena menentukan tampilan seluruh program, bukan
+  cuma shell. Efeknya lebih luas daripada shell, dan justru karena itu semua
+  ikut di-backup dan tetap dibiarkan ada file aslinya untuk restore manual.
 
 Aturan penting dari urutan itu:
 
 - **Langkah 3 boleh menggagalkan switch.** Lebih baik batal daripada merusak.
 - **Kalau backup gagal, switch tidak jalan.** Ini bukan peringatan, ini syarat.
+- **Backup yang tidak bisa dibaca ulang dianggap tidak ada.** Switch tidak
+  pernah lanjut dengan anggapan ada jalan pulang.
 - **Tidak ada penghapusan backup secara otomatis.** Pembersihan hanya kalau
   user sendiri yang memintanya, dan jumlah backup ditampilkan dulu.
 
@@ -271,8 +309,8 @@ pengecualian untuk hal ini.
 ```
 ~/.local/state/rakuos/shell-picker/backups/
   20261002-183045-hyprland-noctalia/
-    metadata.toml          shell, compositor, waktu, asal, hasil
-    config/                salinan ~/.config/noctalia
+    manifest.toml          isi tiap path, jumlah file, ukuran, symlink
+    home/                  salinan, mirroring path asli relatif terhadap $HOME
   20261002-190112-hyprland-dms/
     ...
 ```
@@ -280,7 +318,7 @@ pengecualian untuk hal ini.
 Backup bersifat **tambahan**, bukan pengganti: config asli tetap di tempat
 asalnya. Menyalin, bukan memindahkan.
 
-## Isi `metadata.toml`
+## Isi `manifest.toml`
 
 Minimum ini, supaya rollback bisa memutuskan sendiri apa yang harus dilakukan:
 
@@ -329,8 +367,10 @@ shell yang memang belum terpasang — keduanya sudah terlihat lewat badge di car
       dan socket yang tidak bisa dibuka.
 - [ ] Test penolakan guard: compositor terdeteksi A, lalu backend untuk B
       dipanggil — harus menolak, dan tidak boleh menyentuh apa pun.
-- [ ] Test `metadata.toml`: timestamp, `outcome`, nama shell.
+- [ ] Test `manifest.toml`: isi tiap path, jumlah file, ukuran, symlink.
 - [ ] Test yang membuktikan config asli masih utuh setelah backup.
+- [ ] Test bahwa backup yang rusak ditolak: hapus satu file dari salinan, lalu
+      `verify()` harus menolak dan menyebut file yang hilang.
 - [ ] Test rollback dengan target yang dijamin gagal start.
 - [ ] Deteksi "shell lain yang jalan di luar daftar kita" sebelum switch, supaya
       picker tidak diam-diam menyalakan shell kedua.

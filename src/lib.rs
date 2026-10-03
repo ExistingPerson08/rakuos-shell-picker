@@ -18,16 +18,20 @@
 //! src/shell.rs     the Shell type and how to inspect one
 //! src/logging.rs   channel 1: the application log file
 //! src/session.rs   active/previous shell state under XDG
+//! src/backup.rs    verified copy of the config a switch will replace
+//! src/switch.rs    the ordered steps of a switch, and what they touch
 //! ```
 //!
 //! The rule of thumb: adding a shell touches only that shell's file. Adding a
 //! compositor touches only that compositor's folder. Neither touches `ui/`.
 
 pub mod app;
+pub mod backup;
 pub mod compositor;
 pub mod logging;
 pub mod session;
 pub mod shell;
+pub mod switch;
 pub mod ui;
 
 #[cfg(test)]

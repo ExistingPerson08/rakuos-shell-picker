@@ -11,6 +11,7 @@ pub static SHELL: Shell = Shell {
     binary: "ambxst",
     start_argv: &["ambxst"],
     config_dir: None,
+    state_dir: None,
     systemd_user_unit: None,
     mechanism: StartMechanism::DirectProcess,
     health_socket: None,

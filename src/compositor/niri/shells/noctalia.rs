@@ -11,6 +11,7 @@ pub static SHELL: Shell = Shell {
     binary: "noctalia",
     start_argv: &["noctalia"],
     config_dir: Some(".config/noctalia"),
+    state_dir: Some(".local/state/noctalia"),
     systemd_user_unit: None,
     mechanism: StartMechanism::SpawnAtStartup,
     health_socket: None,

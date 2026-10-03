@@ -81,6 +81,12 @@ pub struct Shell {
     pub binary: &'static str,
     pub start_argv: &'static [&'static str],
     pub config_dir: Option<&'static str>,
+    /// Where this shell keeps state that is not configuration, relative to
+    /// `$HOME`. Backed up alongside the config: Noctalia keeps most of itself
+    /// here, so a backup that skipped it would lose the user's actual setup.
+    /// `None` means the shell has none, or that it is not known, and less is
+    /// then carried out of a switch.
+    pub state_dir: Option<&'static str>,
     pub systemd_user_unit: Option<&'static str>,
     pub mechanism: StartMechanism,
     /// Health probe: a process name or an IPC socket path. Empty means the
@@ -125,6 +131,11 @@ impl Shell {
     pub fn config_path(&self) -> Option<PathBuf> {
         let home = std::env::var_os("HOME")?;
         self.config_dir.map(|d| PathBuf::from(home).join(d))
+    }
+
+    pub fn state_path(&self) -> Option<PathBuf> {
+        let home = std::env::var_os("HOME")?;
+        self.state_dir.map(|d| PathBuf::from(home).join(d))
     }
 
     pub fn mechanism_label(&self) -> &'static str {

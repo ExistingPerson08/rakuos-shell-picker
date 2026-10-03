@@ -8,6 +8,7 @@ pub static SHELL: Shell = Shell {
     binary: "dms",
     start_argv: &["dms", "run"],
     config_dir: Some(".config/DankMaterialShell"),
+    state_dir: None,
     systemd_user_unit: Some("dms"),
     mechanism: StartMechanism::SystemdUserUnit,
     health_socket: None,
