@@ -31,7 +31,7 @@ Sebelum mulai coding, pastikan environment-nya benar:
 
 ## Status project
 
-Prototype. Sudah ada: UI lengkap, deteksi shell, log, state persistence.
-Belum ada: pergantian shell sungguhan, backup, dan registri shell untuk Niri.
+  Ready to use. UI + backend switch, backup, rollback, dan registri shell sudah berjalan.
+
 
 Urutan pengerjaan ada di FEATURES.md bagian "Rencana".

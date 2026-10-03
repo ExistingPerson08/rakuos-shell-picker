@@ -1026,48 +1026,46 @@ pub fn everything(
     // The backup is verified, so the install can be allowed to write. Nothing after
     // this point is reversible by re-copying, which is why the log keeps saying
     // what is about to run.
-    let Some(plan) = target.install_plan else {
-        return Outcome::Failed(format!(
-            "backed up, but {} has no install plan, so nothing else was touched.",
+    let plan = if let Some(plan) = target.install_plan {
+        progress(&format!(
+            "installing in {} stages: {}",
+            plan.stages.len(),
+            plan.command_line()
+        ));
+        Some(plan)
+    } else {
+        progress(&format!(
+            "{} has no install plan, so no packages were touched",
             target.display_name
         ));
+        None
     };
 
-    progress(&format!(
-        "installing in {} stages: {}",
-        plan.stages.len(),
-        plan.command_line()
-    ));
-    match install(plan, progress) {
-        Install::Finished { stages, .. } => {
+
+    match plan.as_ref().map(|p| install(p.clone(), progress)) {
+        Some(Install::Finished { stages, .. }) => {
             progress(&format!("{stages} stage(s) installed"));
         }
-        // Already installed still gets a switch. Whether the package is present
-        // says nothing about whether the configuration is in place, and the
-        // configuration is the part being switched.
-        Install::AlreadyThere { packages } => {
+        Some(Install::AlreadyThere { packages }) => {
             progress(&format!("already installed: {}", packages.join(", ")));
         }
-        Install::Dismissed { stage } => {
+        Some(Install::Dismissed { stage }) => {
             return Outcome::Failed(format!(
-                "the permission prompt for stage {stage} was dismissed. Your backup is still \
-                 in place."
+                "the permission prompt for stage {stage} was dismissed. Your backup is still                  in place."
             ));
         }
-        Install::Failed {
+        Some(Install::Failed {
             stage,
             status,
             output,
-        } => {
+        }) => {
             return Outcome::Failed(format!(
-                "stage {stage} failed ({status}); later stages were not run. Your backup is \
-                 still in place. rum said: {}",
+                "stage {stage} failed ({status}); later stages were not run. Your backup is                  still in place. rum said: {}",
                 output.lines().rev().take(3).collect::<Vec<_>>().join(" / ")
             ));
         }
-    }
-
-    let ctx = crate::apply::Context {
+        None => {}
+    }    let ctx = crate::apply::Context {
         home: roots.home.clone(),
         backups_root: roots.backups_root.clone(),
         skel: crate::apply::skel_for(compositor.id(), target.id),

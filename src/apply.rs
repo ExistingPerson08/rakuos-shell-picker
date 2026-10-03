@@ -826,28 +826,39 @@ fn verify(
     // unit are both compatible with the old shell still holding the bus, which is
     // the failure that would otherwise only surface as a desktop with no
     // notifications after the logout.
-    match (bus_owner_before, notification_owner()) {
-        (_, None) => {
-            return Err((
-                "verify",
-                format!(
-                    "nobody owns {NOTIFICATION_BUS} yet, so there is no notification service to \
-                     log into"
-                ),
-            ));
+    //
+    // Directly spawned shells (like noctalia) take a moment to claim the bus, so
+    // "nobody owns it yet" is treated as transient while we are still inside the
+    // grace period, rather than an immediate failure.
+    loop {
+        match (bus_owner_before, notification_owner()) {
+            (_, None) => {
+                if Instant::now() >= deadline {
+                    return Err((
+                        "verify",
+                        format!(
+                            "nobody owns {NOTIFICATION_BUS} by the end of the grace period; the new shell never claimed the notification bus"
+                        ),
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
+            }
+            (Some(before), Some(after)) if before == after => {
+                return Err((
+                    "verify",
+                    format!(
+                        "{NOTIFICATION_BUS} is still owned by pid {after}, the process that owned it before, so the old shell is still serving notifications"
+                    ),
+                ));
+            }
+            (_, Some(after)) => {
+                progress(&format!(
+                    "{NOTIFICATION_BUS} now belongs to pid {after}, not to the one it had before"
+                ));
+                break;
+            }
         }
-        (Some(before), Some(after)) if before == after => {
-            return Err((
-                "verify",
-                format!(
-                    "{NOTIFICATION_BUS} is still owned by pid {after}, the process that owned \
-                     it before, so the old shell is still serving notifications"
-                ),
-            ));
-        }
-        (_, Some(after)) => progress(&format!(
-            "{NOTIFICATION_BUS} now belongs to pid {after}, not to the one it had before"
-        )),
     }
     Ok(())
 }

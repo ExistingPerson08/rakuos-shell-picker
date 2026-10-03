@@ -11,8 +11,7 @@ Hyprland / Niri        <- compositor, selalu hidup, tidak pernah di-restart
 
 ## Status
 
-Prototype. UI sudah jadi dan berjalan; pergantian shell sungguhan belum
-diimplementasikan. Lihat [docs/FEATURES.md](docs/FEATURES.md) untuk daftar
+Ready to use. UI dan switch backend sudah terimplementasi, aman dengan backup+rollback. Lihat [docs/FEATURES.md](docs/FEATURES.md) untuk daftar
 lengkap fitur beserta statusnya.
 
 ## Build & run
@@ -73,3 +72,13 @@ Sebelum mulai coding, cek environment:
 - Window harus float + ukuran tetap agar tidak ikut tile: rule Hyprland ada di
   `~/.config/hypr/config/windowrules.lua`.
 - State: `~/.local/state/rakuos/shell-picker/state.toml`
+
+## Alur kerja
+
+1. Mendeteksi compositor yang sedang berjalan (Hyprland/Niri).
+2. Menampilkan daftar shell yang tersedia untuk compositor tersebut.
+3. Saat user memilih shell: backup konfigurasi yang relevan dengan shell, stop shell lama, terapkan konfigurasi target (dari skel/backup logic), start shell baru.
+4. Verifikasi: bus notifikasi berpindah ke shell baru.
+5. Logout sesi (default) atau biarkan live (--no-logout/opsi UI) — logout memastikan sesi fresh.
+
+Semua perubahan hanya menyentuh konfigurasi yang berkaitan dengan shell (lihat [docs/SAFETY.md](docs/SAFETY.md)). Compositor tidak pernah di-restart.

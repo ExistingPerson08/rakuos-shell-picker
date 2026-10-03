@@ -6,9 +6,7 @@ dipertahankan, bukan aturannya yang dilonggarkan.
 
 ## Yang tidak boleh pernah terjadi
 
-1. **Tidak pernah menghapus atau menimpa konfigurasi user.** Tidak `rm`, tidak
-   `mv` tanpa backup, tidak truncate. Config yang diedit manual sering tidak
-   bisa direkonstruksi.
+  1. **Batasi perubahan hanya pada konfigurasi yang berkaitan dengan shell.** Picker hanya boleh mengelola file/folder yang jelas berkaitan dengan shell target; aplikasi umum tidak boleh disentuh. Semua perubahan wajib dibackup, tanpa `rm`/`mv` tanpa backup, dan tidak boleh truncate.
 2. **Tidak pernah me-restart atau mematikan compositor.** Hyprland/Niri yang
    sedang menjalankan sesi user tetap jalan selama picker hidup. Kalau picker
    mati, compositor harus tetap hidup dan shell harus tetap bisa jalan ulang.
@@ -414,4 +412,3 @@ shell yang memang belum terpasang — keduanya sudah terlihat lewat badge di car
 - [ ] Batas waktu untuk stop/start, supaya tidak menggantung selamanya.
 - [ ] Test rotasi log gagal: lebih dari 10 file, yang tertua dipangkas, backup
       konfigurasi **tidak** ikut terpangkas.
-
