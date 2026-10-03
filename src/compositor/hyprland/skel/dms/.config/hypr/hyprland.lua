@@ -24,29 +24,3 @@ require("config.workspaces")
 require("config.lid")
 dofile(os.getenv("HOME") .. "/.config/hypr/layouts/fair.lua")
 dofile(os.getenv("HOME") .. "/.config/hypr/layouts/deck.lua")
-
--- ---------- Noctalia Hyprland theming: OFF by default ----------
--- The default template set is ["gtk3", "gtk4", "qt"], so Noctalia does NOT
--- write ~/.config/hypr/noctalia.lua and Hyprland's own colours (borders,
--- decorations) are not driven by the shell theme.
---
--- To turn it on, do BOTH of these -- neither works alone:
---   1. add "hyprland" to builtin_ids in ~/.config/noctalia/config.toml
---      (Noctalia then regenerates ~/.config/hypr/noctalia.lua), and
---   2. uncomment the block below.
---
--- Requiring "noctalia" without the file existing is a hard config error, which
--- is why noctalia.lua is not shipped in this skel. Generating it without the
--- require does nothing, which is why the require is not shipped either.
--- local noct = require("noctalia")
--- noct.apply_theme()
--- hl.config({
---     general = {
---         col = {
---             active_border = {
---                 colors = { noct.colors.primary, noct.colors.secondary },
---                 angle = 45,
---             },
---         },
---     },
--- })
