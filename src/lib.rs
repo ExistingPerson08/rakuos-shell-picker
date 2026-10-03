@@ -26,6 +26,7 @@
 //! compositor touches only that compositor's folder. Neither touches `ui/`.
 
 pub mod app;
+pub mod apply;
 pub mod backup;
 pub mod clock;
 pub mod compositor;
