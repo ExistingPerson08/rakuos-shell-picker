@@ -174,7 +174,7 @@ Urutan satu-satunya yang boleh dipakai:
   5. INSTALL   : satu privileged transaction per tahap, pkexec rum install -y
                  <paket>, hanya untuk paket yang memang belum ada
                                              <- gagal di sini, switch dibatalkan
-  6. terapkan skel : config milik shell diganti penuh; hypr/uwsm hanya fragment
+  6. terapkan skel : config milik shell diganti penuh; hypr hanya lewat shim
   7. stop      : shell lama diberi SIGTERM -> ditunggu -> batas waktu -> kill -9
                  hanya sebagai upaya terakhir
   8. start     : shell baru, sesuai StartMechanism-nya
@@ -220,7 +220,6 @@ Delapan path, relatif terhadap `$HOME`:
 .config/hypr               bersama     hanya lewat fragment, tidak pernah utuh
 .config/qt5ct              bersama
 .config/qt6ct              bersama
-.config/uwsm               bersama     hanya env fragment
 .config/noctalia           shell       keluar
 .local/state/noctalia      shell       keluar
 ```
@@ -289,7 +288,7 @@ config yang berbeda:
 | Dipasang penuh | Dipasang sebagai fragment |
 |---|---|
 | `~/.config/<shell>/` | `~/.config/hypr/` |
-| `~/.config/gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct` | `~/.config/uwsm/env` |
+| `~/.config/gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct` | — |
 
 Alasannya, `~/.config/hypr/` adalah milik user. Jejak sebuah shell di sana
 tersebar di beberapa file sekaligus — untuk Noctalia ada di `hyprland.lua`,
@@ -302,14 +301,23 @@ Jadi picker hanya menulis file milik sendiri, dan kalau autostart perlu diubah,
 perubahannya dilakukan satu kali lewat file shim yang membaca `state.toml`. Sesudah
 itu, ganti shell tidak pernah menyentuh Lua milik user lagi.
 
+`uwsm` tidak ikut berperan, dan tidak pernah ada. Rantainya `start-hyprland` ->
+`Hyprland` -> `noctalia`: UWSM menjalankan kompositor lalu turun, tidak ada
+proses uwsm di rantai itu. Yang menjalankan shell adalah baris
+`hl.exec_cmd("noctalia")` di `config/autostart.lua`. `~/.config/uwsm`
+lagi tidak per-desktop sama sekali — bagian per-desktopnya ada di sistem,
+`/usr/share/uwsm/plugins/<desktop>.sh`, yang tidak pernah kita sentuh; bagian
+user-nya satu skrip `env` global yang dipakai bersama semua sesi. Jadi fragmen
+uwsm akan identik untuk setiap kompositor, yaitu bukan urusan ganti shell,
+cuma risiko merusak file milik desktop lain.
+
 Bentuk direktori:
 
 ```
 src/compositor/hyprland/skel/
   noctalia/  dms/  caelestia/  ambxst/
     shell/        -> ~/.config/<shell>/      dipasang penuh
-    hypr.d/       -> file milik picker       dipasang sebagai fragment
-    uwsm.d/       -> baris env untuk uwsm    dipasang sebagai fragment
+    hypr.d/       -> shim milik picker       dipasang sekali, dibaca thereafter
 ```
 
 Tidak semua shell punya default config untuk disalin. Noctalia tidak mengirim

@@ -18,19 +18,30 @@ use crate::shell::{InstallPlan, Shell};
 /// Paths a switch disturbs no matter which shell is running.
 ///
 /// The toolkit settings decide how every GTK and Qt program on the desktop
-/// looks, and the compositor and UWSM settings decide how the new shell is
-/// started at all. They belong to the session rather than to a shell, which is
-/// why they are listed here instead of coming from a registry entry.
+/// looks. They belong to the session rather than to a shell, which is why they
+/// are listed here instead of coming from a registry entry.
 ///
-/// The compositor's own configuration is not in this list: its path follows the
-/// compositor, so it comes from [`Compositor::config_dir`] instead. See
-/// [`backup_sources`]. `uwsm` is compositor-independent and stays.
+/// Nothing else belongs in this list. `uwsm` used to be here on the assumption
+/// that it decided how the new shell gets started. It does not: UWSM launches
+/// the compositor and then leaves. What launches the shell is the compositor's
+/// own autostart — for Hyprland that is `hl.exec_cmd("noctalia")` in
+/// `~/.config/hypr/config/autostart.lua`.
+///
+/// And `~/.config/uwsm` is not per desktop anyway. The per-desktop half of
+/// UWSM lives in the system's `/usr/share/uwsm/plugins/<desktop>.sh`, which
+/// supplies the session's finalization variables; the user half is a single
+/// global `env` script shared by every session. A fragment written there would
+/// have been identical for every compositor, so it would not have been about
+/// switching shells at all, only about risking a file other desktops read.
+///
+/// The compositor's own configuration is not in this list either: its path
+/// follows the compositor, so it comes from [`Compositor::config_dir`] instead.
+/// See [`backup_sources`].
 pub const SHARED_PATHS: &[&str] = &[
     ".config/gtk-3.0",
     ".config/gtk-4.0",
     ".config/qt5ct",
     ".config/qt6ct",
-    ".config/uwsm",
 ];
 
 /// Everything to copy before switching away from `current`.
@@ -89,12 +100,11 @@ mod tests {
         assert_eq!(
             relative_list(Some(&NOCTALIA)),
             [
-                // shared: toolkit settings and UWSM, which follow nothing
+                // shared: toolkit settings, which follow nothing
                 ".config/gtk-3.0",
                 ".config/gtk-4.0",
                 ".config/qt5ct",
                 ".config/qt6ct",
-                ".config/uwsm",
                 // the compositor's own config, which follows the compositor
                 ".config/hypr",
                 // the outgoing shell's own config and its state
@@ -115,7 +125,6 @@ mod tests {
                 ".config/gtk-4.0",
                 ".config/qt5ct",
                 ".config/qt6ct",
-                ".config/uwsm",
                 ".config/hypr",
             ]
         );
