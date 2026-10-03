@@ -88,6 +88,28 @@ pub struct Shell {
     /// then carried out of a switch.
     pub state_dir: Option<&'static str>,
     pub systemd_user_unit: Option<&'static str>,
+    /// User services this shell needs before it is worth starting, in order.
+    ///
+    /// A shell's own unit does not depend on these, so systemd will happily start
+    /// it with them still down. DMS uses this for `dcal`, which supplies the
+    /// calendar widgets it draws: the service comes up fine without it and looks
+    /// subtly wrong, which is the kind of fault nobody notices until later. Empty
+    /// means the shell needs nothing else, which is the common case.
+    pub companion_systemd_user_units: &'static [&'static str],
+    /// Other paths, relative to `$HOME`, that this shell's skel also carries.
+    ///
+    /// The compositor config and `config_dir` are handled by name, because where
+    /// they come from is a decision worth making explicitly. These are the rest:
+    /// the theme files, the runtime state directory, and the one launcher entry a
+    /// switch has to overwrite. They exist in the skel, so the switch installs them,
+    /// and a path listed here may be a single file rather than a directory, which
+    /// is what makes it possible for one shell to hide another's launcher without
+    /// having to own the whole directory it lives in.
+    ///
+    /// Listing a path both shells would install whole would be a mistake: the swap
+    /// replaces the live path outright rather than merging into it, so a shared
+    /// directory such as `~/.local/share/applications` must never appear here.
+    pub skel_extra_paths: &'static [&'static str],
     /// How to install this shell if it is missing. `None` means there is nothing
     /// to run: either the base image already has it, or no repository carries it.
     pub install_plan: Option<InstallPlan>,

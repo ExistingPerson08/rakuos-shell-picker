@@ -225,11 +225,16 @@ pub struct Prepared {
     pub backup: Backup,
 }
 
-/// Run steps 1 to 3: refuse, preflight, back up.
+/// Work out whether a switch may proceed, and back up what it would change.
 ///
-/// Stops on purpose. The remaining steps — dependencies, `pkexec rum install`,
-/// skel, stop, start, verify — are not written yet, so nothing here touches the
-/// running shell, the target's config, or any package. `docs/SAFETY.md` is the
+/// Refuses first, before touching anything: a refusal costs the user one line,
+/// whereas finding out afterwards costs them a half-finished switch. `docs/SAFETY.md`
+/// is the contract this implements.
+///
+/// Which shells are running is passed in rather than looked up. The caller has
+/// already had to work that out to draw the window, and a function that quietly
+/// reads the process table behind its caller's back cannot be tested without
+/// arranging for a particular shell to be running on the machine.
 /// order; this is where that order currently stops.
 ///
 /// `compositor_id` and `current` come from detection, which the caller re-reads
@@ -239,6 +244,7 @@ pub fn prepare(
     current: Option<&str>,
     target: &'static Shell,
     running: Option<&'static Shell>,
+    target_running: bool,
     home: &Path,
     backups_root: &Path,
 ) -> Result<Prepared, Refusal> {
@@ -259,7 +265,7 @@ pub fn prepare(
         }
         _ => {}
     }
-    if target.running() {
+    if target_running {
         return Err(Refusal::AlreadyRunning {
             shell: target.display_name.to_string(),
         });
@@ -701,6 +707,7 @@ mod prepare_tests {
             Some("hyprland"),
             &DMS,
             Some(&DMS),
+            false,
             &home,
             &root.join("backups"),
         )
@@ -727,6 +734,7 @@ mod prepare_tests {
             None,
             &DMS,
             None,
+            false,
             &home,
             &root.join("backups"),
         )
@@ -746,6 +754,7 @@ mod prepare_tests {
             Some("hyprland"),
             &AMBXST,
             None,
+            false,
             &home,
             &root.join("backups"),
         )
@@ -767,6 +776,7 @@ mod prepare_tests {
             Some("hyprland"),
             &DMS,
             Some(&NOCTALIA),
+            false,
             &home,
             &root.join("backups"),
         )
@@ -811,6 +821,7 @@ mod prepare_tests {
             Some("hyprland"),
             &DMS,
             Some(&NOCTALIA),
+            false,
             &home,
             &root.join("backups"),
         )
@@ -843,6 +854,7 @@ mod prepare_tests {
                 Some("hyprland"),
                 &DMS,
                 Some(&NOCTALIA),
+                false,
                 &home,
                 &root.join("backups"),
             )
@@ -882,6 +894,7 @@ mod prepare_tests {
             Some("hyprland"),
             &DMS,
             running_shell(),
+            false,
             &home,
             &backups,
         )
@@ -944,5 +957,150 @@ mod prepare_tests {
             run_streaming(&mut command, &mut |line| seen.push(line.to_string())).unwrap();
         assert!(status.success());
         assert!(seen.is_empty(), "nothing to report is not an error");
+    }
+}
+
+/// Where a whole switch reads and writes.
+pub struct Roots {
+    pub home: std::path::PathBuf,
+    pub backups_root: std::path::PathBuf,
+}
+
+/// How a whole switch ended.
+pub enum Outcome {
+    /// It worked. Carries the line to show the user.
+    Done(String),
+    /// It did not. Carries the line to show the user.
+    Failed(String),
+}
+
+/// Run a switch from beginning to end: refuse, back up, install, then apply.
+///
+/// One function, so the window and the command line cannot drift apart. The
+/// interesting part is the order: nothing is installed before the backup has been
+/// written and verified, and nothing is applied before the packages are there.
+/// Everything after that is [`crate::apply`]'s business, including rolling back.
+pub fn everything(
+    compositor: &'static dyn crate::compositor::Compositor,
+    current: Option<&str>,
+    target: &'static Shell,
+    running: Option<&'static Shell>,
+    roots: &Roots,
+    log_out: bool,
+    progress: &mut dyn FnMut(&str),
+) -> Outcome {
+    let home = roots.home.as_path();
+    let backups_root = roots.backups_root.as_path();
+
+    // The caller's own answer to "is the shell being switched to already on
+    // screen", which it needed anyway to draw the window.
+    let target_running = running.is_some_and(|s| s.id == target.id);
+
+    let prepared = match prepare(
+        compositor,
+        current,
+        target,
+        running,
+        target_running,
+        home,
+        backups_root,
+    ) {
+        Ok(prepared) => prepared,
+        Err(refusal) => return Outcome::Failed(refusal.message()),
+    };
+
+    let count = prepared.backup.file_count();
+    let bytes: u64 = prepared
+        .backup
+        .manifest
+        .trees
+        .values()
+        .map(|t| t.bytes)
+        .sum();
+    let absent = prepared.backup.manifest.absent.len();
+    progress(&format!(
+        "backed up {count} files ({bytes} bytes, {absent} paths absent) and verified them"
+    ));
+    progress(&format!("saved in {}", prepared.backup.root.display()));
+
+    // The backup is verified, so the install can be allowed to write. Nothing after
+    // this point is reversible by re-copying, which is why the log keeps saying
+    // what is about to run.
+    let Some(plan) = target.install_plan else {
+        return Outcome::Failed(format!(
+            "backed up, but {} has no install plan, so nothing else was touched.",
+            target.display_name
+        ));
+    };
+
+    progress(&format!(
+        "installing in {} stages: {}",
+        plan.stages.len(),
+        plan.command_line()
+    ));
+    match install(plan, progress) {
+        Install::Finished { stages, .. } => {
+            progress(&format!("{stages} stage(s) installed"));
+        }
+        // Already installed still gets a switch. Whether the package is present
+        // says nothing about whether the configuration is in place, and the
+        // configuration is the part being switched.
+        Install::AlreadyThere { packages } => {
+            progress(&format!("already installed: {}", packages.join(", ")));
+        }
+        Install::Dismissed { stage } => {
+            return Outcome::Failed(format!(
+                "the permission prompt for stage {stage} was dismissed. Your backup is still \
+                 in place."
+            ));
+        }
+        Install::Failed {
+            stage,
+            status,
+            output,
+        } => {
+            return Outcome::Failed(format!(
+                "stage {stage} failed ({status}); later stages were not run. Your backup is \
+                 still in place. rum said: {}",
+                output.lines().rev().take(3).collect::<Vec<_>>().join(" / ")
+            ));
+        }
+    }
+
+    let ctx = crate::apply::Context {
+        home: roots.home.clone(),
+        backups_root: roots.backups_root.clone(),
+        skel: crate::apply::skel_for(compositor.id(), target.id),
+    };
+    match crate::apply::apply_with(
+        target,
+        running,
+        compositor,
+        &prepared.backup.root,
+        &ctx,
+        log_out,
+        progress,
+    ) {
+        crate::apply::Apply::Switched { logged_out: true } => {
+            Outcome::Done(format!("switched to {}", target.display_name))
+        }
+        crate::apply::Apply::Switched { logged_out: false } => Outcome::Done(format!(
+            "switched to {}, but the session was not ended. Log out yourself to start it.",
+            target.display_name
+        )),
+        crate::apply::Apply::Failed {
+            step,
+            detail,
+            rolled_back,
+        } => Outcome::Failed(format!(
+            "{step}: {detail}. {}",
+            if rolled_back {
+                "Your previous configuration is back and the shell you were using has been \
+                 started again."
+            } else {
+                "Not everything could be undone on its own; the backup listed above is \
+                 intact and the log says what was left."
+            }
+        )),
     }
 }

@@ -21,6 +21,8 @@ pub static SHELL: Shell = Shell {
     state_dir: Some(".local/state/noctalia"),
     install_plan: None,
     systemd_user_unit: None,
+    companion_systemd_user_units: &[],
+    skel_extra_paths: &[],
     mechanism: StartMechanism::SpawnAtStartup,
     health_socket: None,
     logo: Some("noctalia.svg"),

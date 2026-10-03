@@ -265,92 +265,29 @@ fn begin(
             )));
         }
 
-        match crate::switch::prepare(
+        let roots = crate::switch::Roots {
+            home: home.clone(),
+            backups_root: backups.clone(),
+        };
+        let mut say = |text: &str| {
+            let _ = tx.send(Line::Step(text.to_string()));
+        };
+        // The same pipeline the command line runs, so the window cannot drift away
+        // from what actually happens.
+        match crate::switch::everything(
             compositor,
             current.as_deref(),
             target,
             running,
-            &home,
-            &backups,
+            &roots,
+            true,
+            &mut say,
         ) {
-            Ok(prepared) => {
-                let count = prepared.backup.file_count();
-                let bytes: u64 = prepared
-                    .backup
-                    .manifest
-                    .trees
-                    .values()
-                    .map(|t| t.bytes)
-                    .sum();
-                let absent = prepared.backup.manifest.absent.len();
-                let _ = tx.send(Line::Step(format!(
-                    "backed up {count} files ({bytes} bytes, {absent} paths absent) and verified them"
-                )));
-                let _ = tx.send(Line::Step(format!(
-                    "saved in {}",
-                    prepared.backup.root.display()
-                )));
-
-                // The backup is verified, so the install can be allowed to write.
-                // Nothing after this point is reversible by re-copying, which is
-                // why the log keeps saying what is about to run.
-                let Some(plan) = target.install_plan else {
-                    let _ = tx.send(Line::Done(
-                        "backup finished. This shell has no install plan, so nothing else was touched."
-                            .to_string(),
-                    ));
-                    return;
-                };
-
-                let _ = tx.send(Line::Step(format!(
-                    "installing in {} stages: {}",
-                    plan.stages.len(),
-                    plan.command_line()
-                )));
-                // Every line the package manager prints goes to the panel as it
-                // arrives. An install that says nothing for a minute and a half
-                // is indistinguishable from one that has hung.
-                let mut echo = |text: &str| {
-                    let _ = tx.send(Line::Step(text.to_string()));
-                };
-                match crate::switch::install(plan, &mut echo) {
-                    crate::switch::Install::Finished { stages, .. } => {
-                        let _ = tx.send(Line::Step(format!("{stages} stage(s) installed")));
-                        let _ = tx.send(Line::Done(format!(
-                            "installed. Starting {} and the skel are still not wired up, so \
-                             nothing has been switched.",
-                            target.display_name
-                        )));
-                    }
-                    crate::switch::Install::AlreadyThere { packages } => {
-                        let _ = tx.send(Line::Done(format!(
-                            "already installed: {}. Starting {} and the skel are still not \
-                             wired up, so nothing has been switched.",
-                            packages.join(", "),
-                            target.display_name
-                        )));
-                    }
-                    crate::switch::Install::Dismissed { stage } => {
-                        let _ = tx.send(Line::Failed(format!(
-                            "the permission prompt for stage {stage} was dismissed. Your backup \
-                             is still in place."
-                        )));
-                    }
-                    crate::switch::Install::Failed {
-                        stage,
-                        status,
-                        output,
-                    } => {
-                        let _ = tx.send(Line::Failed(format!(
-                            "stage {stage} failed ({status}); later stages were not run. Your \
-                             backup is still in place. rum said: {}",
-                            output.lines().rev().take(3).collect::<Vec<_>>().join(" / ")
-                        )));
-                    }
-                }
+            crate::switch::Outcome::Done(line) => {
+                let _ = tx.send(Line::Done(line));
             }
-            Err(refusal) => {
-                let _ = tx.send(Line::Failed(refusal.message()));
+            crate::switch::Outcome::Failed(line) => {
+                let _ = tx.send(Line::Failed(line));
             }
         }
     });

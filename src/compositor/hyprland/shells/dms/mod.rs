@@ -55,6 +55,31 @@ pub static SHELL: Shell = Shell {
         args: &["rum", "install", "-y"],
     }),
     systemd_user_unit: Some("dms"),
+    // `dcal` supplies the calendar widgets DMS draws. Nothing makes DMS wait for it,
+    // and DMS looks merely incomplete without it, so it is declared here rather than
+    // left to the skel autostart, which only runs on the next login. The live switch
+    // starts it in the current session too.
+    companion_systemd_user_units: &["dcal"],
+    // DMS's runtime state, its theme tweaks, and one launcher entry.
+    //
+    // That last one is how the Noctalia launcher is hidden while DMS is the shell: a
+    // single file is replaced, so the rest of `~/.local/share/applications` is left
+    // alone. The Noctalia skel carries the same path without `NoDisplay`, so switching
+    // back brings the launcher back instead of leaving it hidden.
+    //
+    // Theme tweaks are listed as individual files, not as `~/.config/gtk-3.0` or
+    // `~/.config/gtk-4.0`. Those two directories are shared with every other GTK
+    // program on the desktop, and the swap replaces a path outright rather than
+    // merging into it, so listing the directory would take the user's own
+    // stylesheets with it. The DMS skel has no `gtk-3.0/gtk.css`, so that one is
+    // deliberately left as the user has it.
+    skel_extra_paths: &[
+        ".config/gtk-3.0/settings.ini",
+        ".config/gtk-4.0/settings.ini",
+        ".config/gtk-4.0/gtk.css",
+        ".local/state/DankMaterialShell",
+        ".local/share/applications/dev.noctalia.Noctalia.desktop",
+    ],
     mechanism: StartMechanism::SystemdUserUnit,
     health_socket: None,
     logo: Some("danklogo2.svg"),

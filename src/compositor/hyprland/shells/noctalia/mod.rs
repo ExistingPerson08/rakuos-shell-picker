@@ -27,6 +27,25 @@ pub static SHELL: Shell = Shell {
     state_dir: Some(".local/state/noctalia"),
     install_plan: None,
     systemd_user_unit: None,
+    companion_systemd_user_units: &[],
+    // `config_dir` is handled separately, since it comes from a backup when one holds
+    // it. The launcher entry is the counterpart to the one the DMS skel replaces:
+    // without it, switching back would leave Noctalia installed and invisible.
+    //
+    // Theme tweaks are listed as individual files, not as `~/.config/gtk-3.0` or
+    // `~/.config/gtk-4.0`. Those two directories are shared with every other GTK
+    // program on the desktop, and the swap replaces a path outright rather than
+    // merging into it, so listing the directory would take the user's own
+    // stylesheets with it. Noctalia's own stylesheets are listed by name so they come back
+    // with the launcher rather than being left to chance.
+    skel_extra_paths: &[
+        ".config/gtk-3.0/noctalia.css",
+        ".config/gtk-3.0/settings.ini",
+        ".config/gtk-4.0/noctalia.css",
+        ".config/gtk-4.0/settings.ini",
+        ".config/gtk-4.0/gtk.css",
+        ".local/share/applications/dev.noctalia.Noctalia.desktop",
+    ],
     mechanism: StartMechanism::Autostart,
     health_socket: None,
     logo: Some("noctalia.svg"),

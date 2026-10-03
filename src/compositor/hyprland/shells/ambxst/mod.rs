@@ -24,6 +24,8 @@ pub static SHELL: Shell = Shell {
     state_dir: None,
     install_plan: None,
     systemd_user_unit: None,
+    companion_systemd_user_units: &[],
+    skel_extra_paths: &[],
     mechanism: StartMechanism::DirectProcess,
     health_socket: None,
     logo: Some("ambxst-logo-color.svg"),
