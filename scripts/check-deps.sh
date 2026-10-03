@@ -88,7 +88,7 @@ fi
 echo
 echo "== aset & konfigurasi =="
 missing_assets=0
-for svg in noctalia danklogo2 celestia ambxst-logo-color; do
+for svg in noctalia danklogo2 caelestia ambxst-logo-color; do
   [ -f "assets/$svg.svg" ] || { bad "assets/$svg.svg hilang"; missing_assets=1; }
 done
 [ "$missing_assets" -eq 0 ] && ok "4 logo SVG lengkap"

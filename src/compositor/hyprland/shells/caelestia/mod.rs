@@ -28,5 +28,5 @@ pub static SHELL: Shell = Shell {
     systemd_user_unit: None,
     mechanism: StartMechanism::StartEvent,
     health_socket: None,
-    logo: Some("celestia.svg"),
+    logo: Some("caelestia.svg"),
 };
