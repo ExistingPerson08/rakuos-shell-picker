@@ -1,34 +1,25 @@
-//! Caelestia, a quickshell shell that no repository carries.
+//! Caelestia Shell on Hyprland.
 //!
-//! What this shell owns:
+//! Only what is specific to this compositor. The fact that it has no package, and
+//! that its verification is unsolved, are in [`crate::shells::caelestia`].
 //!
 //! - **backup**: `~/.config/quickshell/caelestia`, once it exists.
-//! - **install**: none. Nothing in `rakuos`, `fedora` or `updates` has it, so
-//!   there is nothing for the picker to install and the card is refused rather
-//!   than offered.
 //! - **start**: the compositor's start event runs `quickshell -c caelestia`.
-//! - **verify**: not settled, and deliberately left unresolved. `quickshell` is
-//!   a shared runtime that noctalia-qs also installs, so a live process with
-//!   that name proves nothing about which shell it is. This needs a real probe
-//!   before a switch to Caelestia could be trusted, which is one reason it is
-//!   refused today.
+//!
+//! The card is refused rather than offered, because there is no package to install
+//! it from and no settled way to tell it apart from any other quickshell shell.
 
-use crate::shell::{Shell, StartMechanism};
+use crate::shell::{Port, Shell, StartMechanism};
+use crate::shells::caelestia::IDENTITY;
 
-pub static SHELL: Shell = Shell {
-    id: "caelestia",
-    display_name: "Caelestia Shell",
-    upstream: "caelestia-dots/shell",
-    package: None,
-    binary: "caelestia",
-    start_argv: &["caelestia", "shell", "-d"],
+const PORT: Port = Port {
     config_dir: Some(".config/quickshell/caelestia"),
     state_dir: None,
-    install_plan: None,
     systemd_user_unit: None,
-    companion_systemd_user_units: &[],
-    skel_extra_paths: &[],
     mechanism: StartMechanism::StartEvent,
+    skel_extra_paths: &[],
+    backup_extra_paths: &[],
     health_socket: None,
-    logo: Some("caelestia.svg"),
 };
+
+pub static SHELL: Shell = Shell::join(IDENTITY, PORT);

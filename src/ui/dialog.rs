@@ -302,6 +302,7 @@ mod tests {
 
         companion_systemd_user_units: &[],
         skel_extra_paths: &[],
+        backup_extra_paths: &[],
         mechanism: StartMechanism::DirectProcess,
         health_socket: None,
         logo: None,
@@ -321,6 +322,7 @@ mod tests {
 
         companion_systemd_user_units: &[],
         skel_extra_paths: &[],
+        backup_extra_paths: &[],
         mechanism: StartMechanism::DirectProcess,
         health_socket: None,
         logo: None,
@@ -340,6 +342,7 @@ mod tests {
 
         companion_systemd_user_units: &[],
         skel_extra_paths: &[],
+        backup_extra_paths: &[],
         mechanism: StartMechanism::DirectProcess,
         health_socket: None,
         logo: None,

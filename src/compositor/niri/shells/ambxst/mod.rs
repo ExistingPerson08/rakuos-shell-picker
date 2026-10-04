@@ -1,27 +1,24 @@
-//! Ambxst under Niri.
+//! Ambxst on Niri.
 //!
-//! Refused at preflight for the same reason as on the Hyprland page: no config
-//! directory is recorded, so there is nothing to back up.
+//! Only what is specific to this compositor, and as on Hyprland there is very
+//! little: the config location is unknown, so the switch refuses it.
+//!
+//! Ambxst gained official Niri support in 1.3.6. Its Niri config is generated into
+//! `~/.local/share/ambxst/niri.kdl` and pulled in by an include block, which is
+//! probably why no config directory is recorded here — there may be nothing
+//! hand-written to point at even once that is established.
 
-use crate::shell::{Shell, StartMechanism};
+use crate::shell::{Port, Shell, StartMechanism};
+use crate::shells::ambxst::IDENTITY;
 
-/// Ambxst gained official Niri support in 1.3.6. Its Niri config is generated
-/// into `~/.local/share/ambxst/niri.kdl` and pulled in by an include block, so
-/// there is no hand-written config directory to point at.
-pub static SHELL: Shell = Shell {
-    id: "ambxst",
-    display_name: "Ambxst",
-    upstream: "Axenide/Ambxst",
-    package: None,
-    binary: "ambxst",
-    start_argv: &["ambxst"],
+const PORT: Port = Port {
     config_dir: None,
     state_dir: None,
-    install_plan: None,
     systemd_user_unit: None,
-    companion_systemd_user_units: &[],
-    skel_extra_paths: &[],
     mechanism: StartMechanism::DirectProcess,
+    skel_extra_paths: &[],
+    backup_extra_paths: &[],
     health_socket: None,
-    logo: Some("ambxst-logo-color.svg"),
 };
+
+pub static SHELL: Shell = Shell::join(IDENTITY, PORT);

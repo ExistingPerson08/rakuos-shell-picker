@@ -104,15 +104,18 @@ pub struct Context {
 
 /// Where a shell's skel lives in this repository.
 ///
-/// `src/compositor/<compositor>/skel/<shell>`: the layout the shells already use,
-/// so adding a skel needs no second registration and cannot drift out of step with
-/// where the files actually are.
+/// `src/compositor/<compositor>/shells/<shell>/skel`: the templates sit inside the
+/// shell's own folder, so everything about one shell on one compositor is in one
+/// place — the `PORT` that says where its files go, and the files themselves. The
+/// path is derived rather than registered, so a skel cannot end up somewhere other
+/// than where the shell's code expects it.
 pub fn skel_for(compositor_id: &str, shell_id: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src/compositor")
         .join(compositor_id)
-        .join("skel")
+        .join("shells")
         .join(shell_id)
+        .join("skel")
 }
 
 /// Work out what a switch would do, and say it, without doing any of it.

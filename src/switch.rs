@@ -46,10 +46,19 @@ pub const SHARED_PATHS: &[&str] = &[
 
 /// Everything to copy before switching away from `current`.
 ///
-/// Shared paths first, then the outgoing shell's own config, then its state.
+/// Shared paths first, then the outgoing shell's own config, then its state, then
+/// whatever else that shell's own declaration says a switch will overwrite.
 /// Paths that do not exist stay in the list on purpose: the backup records them
 /// as absent, which is what later lets a restore tell "was never there" apart
 /// from "was lost".
+///
+/// The last group is per shell and comes from
+/// [`Shell::backup_extra_paths`](crate::shell::Shell::backup_extra_paths), because
+/// what a switch destroys is not the same for every shell: Noctalia's launcher
+/// entry and DMS's runtime state are written by a switch and belong to nobody
+/// else on the desktop, so nothing else would have saved them. Deriving this list
+/// from `skel_extra_paths` instead would be wrong in the other direction — a file
+/// being installed is not the same question as a file needing to be kept.
 ///
 /// `home` is passed in rather than read from the environment so the list can be
 /// checked without depending on whose session is running.
@@ -64,7 +73,11 @@ pub fn backup_sources(
     // the user also wrote by hand.
     paths.push(home.join(compositor.config_dir()));
     if let Some(shell) = current {
-        for relative in [shell.config_dir, shell.state_dir].into_iter().flatten() {
+        for relative in [shell.config_dir, shell.state_dir]
+            .into_iter()
+            .flatten()
+            .chain(shell.backup_extra_paths.iter().copied())
+        {
             paths.push(home.join(relative));
         }
     }
@@ -110,8 +123,53 @@ mod tests {
                 // the outgoing shell's own config and its state
                 ".config/noctalia",
                 ".local/state/noctalia",
+                // and its launcher entry, which DMS's skel overwrites on the way
+                // out. This one was missing until the backup set was declared per
+                // shell rather than derived: a switch destroyed it with no copy.
+                ".local/share/applications/dev.noctalia.Noctalia.desktop",
             ]
         );
+    }
+
+    #[test]
+    fn switching_away_from_dms_backs_up_what_dms_would_lose() {
+        // DMS is the case the shared derivation could not express. Its state
+        // directory is not `state_dir` — it arrives through the skel as an extra
+        // path — and the launcher it overwrites belongs to the shell being left,
+        // not to DMS. Both are destroyed by a switch, so both have to be saved.
+        assert_eq!(
+            relative_list(Some(&DMS)),
+            [
+                ".config/gtk-3.0",
+                ".config/gtk-4.0",
+                ".config/qt5ct",
+                ".config/qt6ct",
+                ".config/hypr",
+                ".config/DankMaterialShell",
+                ".local/state/DankMaterialShell",
+                ".local/share/applications/dev.noctalia.Noctalia.desktop",
+            ]
+        );
+    }
+
+    #[test]
+    fn caelestia_needs_no_backup_of_its_own() {
+        // Its config directory is the whole of it: the skel installs nothing else
+        // on its behalf, so there is nothing else to save. Declaring a path that is
+        // not installed would be harmless but misleading, and this pins the reason.
+        assert_eq!(
+            relative_list(Some(&CAELESTIA)),
+            [
+                ".config/gtk-3.0",
+                ".config/gtk-4.0",
+                ".config/qt5ct",
+                ".config/qt6ct",
+                ".config/hypr",
+                ".config/quickshell/caelestia",
+            ]
+        );
+        assert!(CAELESTIA.skel_extra_paths.is_empty());
+        assert!(CAELESTIA.backup_extra_paths.is_empty());
     }
 
     #[test]
@@ -865,15 +923,24 @@ mod prepare_tests {
             roots[0], roots[1],
             "two switches must not share a backup directory"
         );
-        // The refusal on reuse stays as the backstop for a real clash: if two
-        // names ever did coincide, the second must fail rather than write into
-        // the first one's directory.
+        // A clash must still never write into the directory that is already there.
+        // What changed is how it is resolved: stepping aside instead of refusing.
+        // Refusing is exactly what made two switches inside one millisecond fail,
+        // and the invariant SAFETY.md rule 2 cares about is the one below, not the
+        // refusal — two backups never share a directory, and the one that was
+        // already there is left as it was.
         let taken = root.join("backups");
-        crate::backup::Backup::create(&taken, "clash", &[], &home)
+        let first = crate::backup::Backup::create(&taken, "clash", &[], &home)
             .expect("the first use of a name is fine");
+        let second = crate::backup::Backup::create(&taken, "clash", &[], &home)
+            .expect("a taken name steps aside rather than failing");
+        assert_ne!(
+            first.root, second.root,
+            "a clash must not resolve to a shared directory"
+        );
         assert!(
-            crate::backup::Backup::create(&taken, "clash", &[], &home).is_err(),
-            "an existing name must be refused, never overwritten"
+            first.root.join("manifest.toml").is_file(),
+            "the backup that was already there must be left intact"
         );
     }
 
@@ -1041,8 +1108,7 @@ pub fn everything(
         None
     };
 
-
-    match plan.as_ref().map(|p| install(p.clone(), progress)) {
+    match plan.as_ref().map(|p| install(*p, progress)) {
         Some(Install::Finished { stages, .. }) => {
             progress(&format!("{stages} stage(s) installed"));
         }
@@ -1065,7 +1131,8 @@ pub fn everything(
             ));
         }
         None => {}
-    }    let ctx = crate::apply::Context {
+    }
+    let ctx = crate::apply::Context {
         home: roots.home.clone(),
         backups_root: roots.backups_root.clone(),
         skel: crate::apply::skel_for(compositor.id(), target.id),

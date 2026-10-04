@@ -312,16 +312,53 @@ cuma risiko merusak file milik desktop lain.
 Bentuk direktori:
 
 ```
-src/compositor/hyprland/skel/
-  noctalia/  dms/  caelestia/  ambxst/
-    shell/        -> ~/.config/<shell>/      dipasang penuh
-    hypr.d/       -> shim milik picker       dipasang sekali, dibaca thereafter
+src/compositor/hyprland/shells/
+  noctalia/
+    mod.rs           -> apa yang ditulis switch untuk Noctalia di Hyprland
+    skel/            -> file yang dipasang switch
+  dms/
+    mod.rs
+    skel/
 ```
+
+Skel ada di dalam folder shell-nya, bukan di folder `skel/` terpisah, supaya
+satu shell di satu compositor utuh di satu tempat: `mod.rs` menyatakan ke mana
+file-nya ditulis dan mana yang perlu diselamatkan, `skel/` berisi file aslinya.
+Tidak perlu mencari dua tempat untuk_EQ satu shell.
 
 Tidak semua shell punya default config untuk disalin. Noctalia tidak mengirim
 satu pun, dia membuat `~/.config/noctalia/config.toml` sendiri saat pertama
 jalan. Karena itu tiap shell perlu ditandai: salin dari skel, atau biarkan
 shell yang membuat default-nya sendiri.
+
+## Apa yang wajib diselamatkan, dan siapa yang mengatakannya
+
+Switch menulis tiga kelompok path, dan ketiganya harus punya backup:
+
+| Yang ditulis switch | Dizukan dari |
+|---|---|
+| config compositor | `Compositor::config_dir` |
+| `config_dir` + `state_dir` shell | `Port`, otomatis |
+| `skel_extra_paths` | `Port::skel_extra_paths` |
+| `backup_extra_paths` | `Port::backup_extra_paths`, per shell |
+
+Dua kelompok terakhir yang paling mudah terlewat. `skel_extra_paths` adalah daftar file yang
+ditimpa, jadi setiap isinya wajib ada di backup. Dulu daftar backup diturunkan
+dari `config_dir` dan `state_dir` saja, sehingga tiga file ditulis tapi tidak
+diselamatkan: launcher `.desktop` milik Noctalia, dan direktori state DMS. Switch
+bisa menghapus salinan user tanpa ada jalan kembali — persis hasil yang aturan 2
+minta untuk dicegah.
+
+Sekarang tiap shell mendeklarasikan `backup_extra_paths` sendiri, dan test
+`every_installed_path_is_backed_up` mengunci hubungan itu: menambahkan path ke
+`skel_extra_paths` tanpa menambahkannya ke backup akan menggagalkan test, bukan
+mengirim switch yang tidak bisa dibatalkan.
+
+Bedanya antara "dipasang" dan "perlu disimpan" sengaja tidak disamakan. DMS
+memasang `dev.noctalia.Noctalia.desktop` untuk menyembunyikan launcher Noctalia,
+tetapi file itu milik Noctalia — jadi yang menyimpannya adalah shell yang
+memilikinya, bukan yang menutupnya.
+
 ## Me-restart compositor bukan cara ganti shell
 
 Compositor tidak mengenal shell. `hyprctl reload` hanya membaca ulang

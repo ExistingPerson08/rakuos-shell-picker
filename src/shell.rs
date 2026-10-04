@@ -4,9 +4,32 @@
 //! the desktop environment. Hyprland stays running across every entry here, so
 //! switching shells never restarts the compositor.
 //!
-//! Which shells exist is *not* defined here: the registries live under
-//! `compositor::hyprland::shells` and `compositor::niri::shells`, because the
-//! same shell name may not exist for every compositor.
+//! # One shell, two files
+//!
+//! A shell's record splits in two, because most of it is the same on every
+//! compositor and a little of it is not:
+//!
+//! - [`Identity`] — what the shell *is*: its upstream, its package, its install
+//!   plan, its logo. One file per shell, under `crate::shells`. Written once.
+//! - [`Port`] — what the shell is *on this compositor*: where its config lives,
+//!   how it starts, which skel paths it carries. One file per shell **per
+//!   compositor**, under `compositor::<id>::shells`.
+//!
+//! [`Shell::join`] puts the two together into the flat record the rest of the
+//! program reads.
+//!
+//! The split is not tidiness for its own sake. DMS's install plan is two stages
+//! and seven packages, identical on Hyprland and on Niri; Noctalia's package and
+//! binary are the same on both. Written per compositor, each of those was a
+//! second copy to keep in step, and the two compositors disagreeing about which
+//! package provides a shell is exactly the kind of drift that only shows up as a
+//! failed switch. Because [`Port`] has no `id`, no `upstream` and no
+//! `install_plan` field, that disagreement is not expressible.
+//!
+//! Which shells exist for a given compositor is still not decided here: those
+//! registries live under `compositor::hyprland::shells` and
+//! `compositor::niri::shells`, because the same shell may not exist for every
+//! compositor.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -72,6 +95,91 @@ impl Origin {
     }
 }
 
+/// What a shell is, everywhere it runs.
+///
+/// One of these per shell, in `crate::shells::<id>`. Every field is a fact about
+/// the shell itself and would be written identically for every compositor that
+/// supports it — which is the point: there is only ever one copy.
+#[derive(Clone, Copy, Debug)]
+pub struct Identity {
+    pub id: &'static str,
+    pub display_name: &'static str,
+    pub upstream: &'static str,
+    /// The package that identifies this shell, and what availability is checked
+    /// against. `None` for a shell that is not packaged at all, where a binary in
+    /// `PATH` is the only evidence there is.
+    pub package: Option<&'static str>,
+    pub binary: &'static str,
+    pub start_argv: &'static [&'static str],
+    /// How to install this shell if it is missing, or `None` when there is
+    /// nothing to run. See [`InstallPlan`].
+    pub install_plan: Option<InstallPlan>,
+    /// User services this shell needs before it is worth starting, in order. A
+    /// shell's own unit does not depend on these, so systemd will happily start
+    /// it with them still down. DMS uses this for `dcal`, which supplies the
+    /// calendar widgets it draws: the service comes up fine without it and looks
+    /// subtly wrong, which is the kind of fault nobody notices until later. Empty
+    /// means the shell needs nothing else, which is the common case.
+    pub companion_systemd_user_units: &'static [&'static str],
+    /// File name inside the project `assets/` directory.
+    pub logo: Option<&'static str>,
+}
+
+/// How one shell lives on one compositor.
+///
+/// One of these per shell **per compositor**, in `compositor::<id>::shells::<shell>`.
+/// Only the facts that can legitimately differ between compositors belong here;
+/// anything that would be the same on both is in [`Identity`] instead.
+#[derive(Clone, Copy, Debug)]
+pub struct Port {
+    /// Where this shell's configuration lives, relative to `$HOME`. `None` means
+    /// it is not known, and the shell must then be refused rather than guessed at
+    /// — see `docs/SAFETY.md`, rule 4.
+    pub config_dir: Option<&'static str>,
+    /// Where this shell keeps state that is not configuration, relative to
+    /// `$HOME`. Backed up alongside the config: Noctalia keeps most of itself
+    /// here, so a backup that skipped it would lose the user's actual setup.
+    /// `None` means the shell has none, or that it is not known, and less is
+    /// then carried out of a switch.
+    pub state_dir: Option<&'static str>,
+    /// The systemd user unit that starts this shell, when it has one.
+    pub systemd_user_unit: Option<&'static str>,
+    pub mechanism: StartMechanism,
+    /// Other paths, relative to `$HOME`, that this shell's skel also carries.
+    ///
+    /// The compositor config and `config_dir` are handled by name, because where
+    /// they come from is a decision worth making explicitly. These are the rest:
+    /// the theme files, the runtime state directory, and the one launcher entry a
+    /// switch has to overwrite. They exist in the skel, so the switch installs
+    /// them, and a path listed here may be a single file rather than a directory,
+    /// which is what makes it possible for one shell to hide another's launcher
+    /// without having to own the whole directory it lives in.
+    ///
+    /// Listing a path both shells would install whole would be a mistake: the swap
+    /// replaces the live path outright rather than merging into it, so a shared
+    /// directory such as `~/.local/share/applications` must never appear here.
+    pub skel_extra_paths: &'static [&'static str],
+    /// Paths this shell's skel installs that are neither its `config_dir` nor its
+    /// `state_dir`, and that nothing else on the desktop would have backed up.
+    ///
+    /// A switch writes every path in `skel_extra_paths`, so each of them has to be
+    /// in the backup or the switch destroys the user's copy of a file it is about
+    /// to replace, with no way back. `config_dir` and `state_dir` are already
+    /// included by name, and `~/.config/gtk-3.0` and `~/.config/gtk-4.0` are
+    /// session-wide, so the theme files both shells install need no mention here.
+    /// What is left is genuinely per shell: Noctalia's launcher entry, which DMS
+    /// overwrites to hide it, and DMS's runtime state.
+    ///
+    /// Empty means this shell needs nothing beyond its config and state. The
+    /// invariant is enforced by `every_installed_path_is_backed_up` in `src/lib.rs`,
+    /// so adding a path to `skel_extra_paths` without adding it here fails the test
+    /// suite rather than silently shipping an unrecoverable switch.
+    pub backup_extra_paths: &'static [&'static str],
+    /// Health probe: a process name or an IPC socket path. Empty means the
+    /// process name is used.
+    pub health_socket: Option<&'static str>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Shell {
     pub id: &'static str,
@@ -110,6 +218,10 @@ pub struct Shell {
     /// replaces the live path outright rather than merging into it, so a shared
     /// directory such as `~/.local/share/applications` must never appear here.
     pub skel_extra_paths: &'static [&'static str],
+    /// See [`Port::backup_extra_paths`]. Kept here as well because a backup is
+    /// taken from the live system and read back through `Shell`, so the paths a
+    /// switch could destroy have to travel with the shell they belong to.
+    pub backup_extra_paths: &'static [&'static str],
     /// How to install this shell if it is missing. `None` means there is nothing
     /// to run: either the base image already has it, or no repository carries it.
     pub install_plan: Option<InstallPlan>,
@@ -119,6 +231,43 @@ pub struct Shell {
     pub health_socket: Option<&'static str>,
     /// File name inside the project `assets/` directory.
     pub logo: Option<&'static str>,
+}
+
+impl Shell {
+    /// The record the rest of the program reads: one shell, on one compositor.
+    ///
+    /// `const`, so a per-compositor file can state its result as a plain
+    /// declaration and every consumer can take a `&'static Shell`:
+    ///
+    /// ```ignore
+    /// const PORT: Port = Port { /* only what differs here */ };
+    /// pub static SHELL: Shell = Shell::join(IDENTITY, PORT);
+    /// ```
+    ///
+    /// Takes both halves by value. They are `Copy`, so this is a field-by-field
+    /// assembly with nothing borrowed and nothing shared between the two
+    /// compositors' copies beyond the `&'static str`s they were built from.
+    pub const fn join(identity: Identity, port: Port) -> Self {
+        Self {
+            id: identity.id,
+            display_name: identity.display_name,
+            upstream: identity.upstream,
+            package: identity.package,
+            binary: identity.binary,
+            start_argv: identity.start_argv,
+            companion_systemd_user_units: identity.companion_systemd_user_units,
+            install_plan: identity.install_plan,
+            logo: identity.logo,
+
+            config_dir: port.config_dir,
+            state_dir: port.state_dir,
+            systemd_user_unit: port.systemd_user_unit,
+            mechanism: port.mechanism,
+            skel_extra_paths: port.skel_extra_paths,
+            backup_extra_paths: port.backup_extra_paths,
+            health_socket: port.health_socket,
+        }
+    }
 }
 
 /// This project's own directory name, used to keep its files from colliding with

@@ -1,32 +1,24 @@
-//! Ambxst, started as a plain process.
+//! Ambxst on Hyprland.
 //!
-//! What this shell owns:
+//! Only what is specific to this compositor, and here there is very little: the
+//! config location is unknown, so there is nothing to back up and nothing to seed.
+//! That is why `Port::config_dir` is `None`, and it is why the switch refuses it —
+//! see `docs/SAFETY.md`, rule 4.
 //!
-//! - **backup**: nothing, because no config directory is recorded.
-//! - **install**: none; no repository carries it.
 //! - **start**: a direct process, `ambxst`.
 //! - **verify**: a process named `ambxst` is alive.
-//!
-//! Refused at preflight, and the missing config location is why: with nowhere
-//! recorded for the config there is nothing to back up and nothing to seed, so a
-//! switch could neither be undone nor completed.
 
-use crate::shell::{Shell, StartMechanism};
+use crate::shell::{Port, Shell, StartMechanism};
+use crate::shells::ambxst::IDENTITY;
 
-pub static SHELL: Shell = Shell {
-    id: "ambxst",
-    display_name: "Ambxst",
-    upstream: "Axenide/Ambxst",
-    package: None,
-    binary: "ambxst",
-    start_argv: &["ambxst"],
+const PORT: Port = Port {
     config_dir: None,
     state_dir: None,
-    install_plan: None,
     systemd_user_unit: None,
-    companion_systemd_user_units: &[],
-    skel_extra_paths: &[],
     mechanism: StartMechanism::DirectProcess,
+    skel_extra_paths: &[],
+    backup_extra_paths: &[],
     health_socket: None,
-    logo: Some("ambxst-logo-color.svg"),
 };
+
+pub static SHELL: Shell = Shell::join(IDENTITY, PORT);

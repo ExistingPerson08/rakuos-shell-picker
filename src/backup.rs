@@ -54,6 +54,15 @@ pub struct Backup {
     pub manifest: Manifest,
 }
 
+/// How many names to try before giving up: `name`, then `name-2` up to
+/// `name-N`.
+///
+/// Bounded so a pathological parent directory cannot spin here forever. Five
+/// hundred switches inside one millisecond is not a thing that happens; a
+/// full disk or a permissions problem is, and that surfaces as the error from
+/// `create_dir` on the first attempt rather than as a wrong name.
+const BACKUP_NAME_ATTEMPTS: u32 = 500;
+
 impl Backup {
     /// Copy `sources` into a fresh directory under `parent`.
     ///
@@ -71,12 +80,36 @@ impl Backup {
 
         fs::create_dir_all(parent)
             .with_context(|| format!("creating backup root {}", parent.display()))?;
-        let root = parent.join(name);
-        // Not create_dir_all: this must fail if the directory already exists,
-        // which is the point. Two switches must never share a backup directory,
-        // or the second would overwrite the way out of the first.
-        fs::create_dir(&root)
-            .with_context(|| format!("creating backup directory {}", root.display()))?;
+
+        // A name derived from the clock is unique only to the millisecond, and two
+        // switches really can land inside the same one: an immediate retry after a
+        // switch that failed partway, or a second click. `create_dir` is atomic —
+        // it fails if the directory is already there — so exactly one attempt can
+        // win and no two backups can ever share a directory. Step to the next
+        // suffix on a clash instead of overwriting, which is the one outcome rule
+        // 2 of SAFETY.md forbids.
+        let root = (1..=BACKUP_NAME_ATTEMPTS)
+            .find_map(|attempt| {
+                let candidate = if attempt == 1 {
+                    parent.join(name)
+                } else {
+                    parent.join(format!("{name}-{attempt}"))
+                };
+                match fs::create_dir(&candidate) {
+                    Ok(()) => Some(Ok(candidate)),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                    Err(e) => Some(Err(e).with_context(|| {
+                        format!("creating backup directory {}", candidate.display())
+                    })),
+                }
+            })
+            .unwrap_or_else(|| {
+                Err(anyhow!(
+                    "no free backup directory name between {name:?} and \
+                     {name}-{BACKUP_NAME_ATTEMPTS}: this switch will not start rather \
+                     than touch a backup that already exists"
+                ))
+            })?;
 
         let mut manifest = Manifest::default();
         for source in sources {
@@ -324,6 +357,32 @@ mod tests {
     }
 
     #[test]
+    fn an_exhausted_name_space_refuses_rather_than_guessing() {
+        // The loop is bounded, so it has to end in a refusal that says why. Silently
+        // reusing a name past the bound would be the one outcome that breaks rule 2.
+        let dir = sandbox("exhausted");
+        let home = dir.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let backups = dir.join("backups");
+        for attempt in 1..=BACKUP_NAME_ATTEMPTS {
+            Backup::create(&backups, "s", &[], &home)
+                .unwrap_or_else(|e| panic!("attempt {attempt} should have been free: {e}"));
+        }
+
+        let err = Backup::create(&backups, "s", &[], &home)
+            .expect_err("with every name taken there is nowhere safe to go");
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("no free backup directory name"),
+            "the refusal has to explain itself: {message}"
+        );
+        assert!(
+            backups.join("s").is_dir(),
+            "the oldest backup must still be there"
+        );
+    }
+
+    #[test]
     fn a_backup_copies_the_whole_tree() {
         let root = sandbox("whole-tree");
         let home = root.join("home");
@@ -344,19 +403,36 @@ mod tests {
     }
 
     #[test]
-    fn a_backup_refuses_to_reuse_a_directory() {
+    fn a_backup_never_writes_into_a_directory_that_is_already_there() {
+        // What SAFETY.md rule 2 asks for is that two backups never share a
+        // directory. Refusing a reuse delivered that, but it also failed the second
+        // switch outright whenever the name collided — and a clock-derived name
+        // collides whenever two switches land in the same millisecond. So a reuse is
+        // resolved by stepping to a fresh name, and what is asserted here is the
+        // invariant rather than the refusal.
         let root = sandbox("reuse");
         let home = root.join("home");
         write(&home.join(".config/noctalia/a"), "a");
         let sources = [home.join(".config/noctalia")];
 
-        Backup::create(&root.join("backups"), "same-name", &sources, &home).unwrap();
-        // A second switch must not be able to land on top of the first one.
-        let err = Backup::create(&root.join("backups"), "same-name", &sources, &home)
-            .expect_err("second backup should refuse");
-        assert!(
-            format!("{err:#}").contains("creating backup directory"),
-            "{err:#}"
+        let first = Backup::create(&root.join("backups"), "same-name", &sources, &home).unwrap();
+        let second = Backup::create(&root.join("backups"), "same-name", &sources, &home)
+            .expect("a second switch steps aside rather than failing");
+
+        assert_ne!(
+            first.root, second.root,
+            "a second switch must not land on the first"
+        );
+        assert_eq!(first.file_count(), second.file_count());
+        assert_eq!(
+            std::fs::read_to_string(first.root.join("home/.config/noctalia/a")).unwrap(),
+            "a",
+            "the first backup must still hold what it copied"
+        );
+        assert_eq!(
+            std::fs::read_to_string(second.root.join("home/.config/noctalia/a")).unwrap(),
+            "a",
+            "and the second must be a real copy, not a move"
         );
     }
 
