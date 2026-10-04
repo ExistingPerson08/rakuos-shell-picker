@@ -381,6 +381,14 @@ pub enum Install {
         status: String,
         output: String,
     },
+    /// The plan names no packages, so there was nothing to install.
+    ///
+    /// Not reachable from a declared shell: `every_installed_plan_can_do_something`
+    /// rejects such a plan. This exists because the check that follows is
+    /// vacuously true for an empty list, and a switch must never go on to start a
+    /// shell that was never installed — not even on the strength of an install
+    /// step that did nothing.
+    Malformed { package: &'static str },
 }
 
 /// Install the plan's packages one stage at a time, asking polkit each time.
@@ -400,14 +408,28 @@ pub enum Install {
 /// the length of the download, and a working install is indistinguishable from a
 /// hung one.
 pub fn install(plan: InstallPlan, progress: &mut dyn FnMut(&str)) -> Install {
-    if plan
-        .packages()
+    let packages = plan.packages();
+
+    // Before the "already there" question, which an empty list answers yes.
+    if packages.is_empty() {
+        crate::logging::error(&format!(
+            "{} has an install plan that names no packages",
+            plan.package
+        ));
+        progress(&format!(
+            "the install plan for {} names no packages, so there is nothing to install",
+            plan.package
+        ));
+        return Install::Malformed {
+            package: plan.package,
+        };
+    }
+
+    if packages
         .iter()
         .all(|p| crate::shell::package_origin(p).installed())
     {
-        return Install::AlreadyThere {
-            packages: plan.packages(),
-        };
+        return Install::AlreadyThere { packages };
     }
 
     let mut output = String::new();
@@ -1117,7 +1139,14 @@ pub fn everything(
         }
         Some(Install::Dismissed { stage }) => {
             return Outcome::Failed(format!(
-                "the permission prompt for stage {stage} was dismissed. Your backup is still                  in place."
+                "the permission prompt for stage {stage} was dismissed. Your backup is still in place."
+            ));
+        }
+        Some(Install::Malformed { package }) => {
+            return Outcome::Failed(format!(
+                "the install plan for {package} names no packages, so nothing was installed. \\
+                 This is a bug in the picker, not a problem with your machine. Your backup is still \\
+                 in place."
             ));
         }
         Some(Install::Failed {
@@ -1126,7 +1155,8 @@ pub fn everything(
             output,
         }) => {
             return Outcome::Failed(format!(
-                "stage {stage} failed ({status}); later stages were not run. Your backup is                  still in place. rum said: {}",
+                "stage {stage} failed ({status}); later stages were not run. \
+                 Your backup is still in place. rum said: {}",
                 output.lines().rev().take(3).collect::<Vec<_>>().join(" / ")
             ));
         }

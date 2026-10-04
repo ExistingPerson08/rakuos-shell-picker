@@ -233,6 +233,41 @@ mod registry_tests {
     }
 
     #[test]
+    fn every_installed_plan_can_do_something() {
+        // A plan with no stages, an empty stage, or a `package` that appears in
+        // none of its stages installs nothing while looking deliberate in the
+        // source. `packages()` on such a plan is empty, and "is every one of
+        // these packages installed?" over an empty list is answered yes, so the
+        // switch would report the shell as already installed and then try to
+        // start it. That is the one place where a typo becomes a lie told to the
+        // user after their backup was taken.
+        //
+        // DMS is the only plan there is today, so this reads as a formality. It
+        // is here for whoever adds the next shell and mistypes a stage.
+        for compositor in compositor::all() {
+            for shell in compositor.shells() {
+                let Some(plan) = shell.install_plan else {
+                    continue;
+                };
+                assert!(
+                    plan.is_well_formed(),
+                    "{}/{} declares an install plan that cannot install anything: \
+                     stages {:?}",
+                    compositor.id(),
+                    shell.id,
+                    plan.stages
+                );
+                assert!(
+                    !plan.packages().is_empty(),
+                    "{}/{} has a well-formed plan naming no packages",
+                    compositor.id(),
+                    shell.id
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_shell_states_where_its_config_lives() {
         // A shell with no config location cannot be backed up or seeded, which
         // is why preflight refuses it. Recorded here so adding such a shell is a

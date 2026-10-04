@@ -350,7 +350,69 @@ pub struct InstallPlan {
     pub args: &'static [&'static str],
 }
 
+/// String equality in a `const fn`.
+///
+/// `==` on `&str` is not const yet, so the bytes are compared by hand. Only used
+/// to check that a package name appears in a stage, where both sides are short
+/// literals and the length check settles most comparisons.
+const fn same_bytes(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
 impl InstallPlan {
+    /// Whether this plan describes an install that can actually do something.
+    ///
+    /// Three ways to get it wrong, all of which look fine in a source listing:
+    ///
+    /// - no stages at all, so there is nothing to run;
+    /// - an empty stage, which [`Self::packages`] silently drops;
+    /// - a `package` that appears in no stage, so the shell the plan is
+    ///   declared on is not among the packages it installs.
+    ///
+    /// The first two are not hypothetical tidiness. `packages()` on an empty plan
+    /// returns an empty list, and `install()` asks whether every package in that
+    /// list is already present — a question with no packages in it is answered
+    /// yes. The switch would then report the shell as already installed, after
+    /// taking a backup and getting a polkit authorization out of the user, and
+    /// go on to start a shell that was never installed.
+    ///
+    /// `const` so a registry guard can run it while iterating the statics.
+    pub const fn is_well_formed(&self) -> bool {
+        if self.stages.is_empty() {
+            return false;
+        }
+        // Tracked rather than returned on: finding the package must not let an
+        // empty stage further along go unchecked.
+        let mut named = false;
+        let mut index = 0;
+        while index < self.stages.len() {
+            let stage = self.stages[index];
+            if stage.is_empty() {
+                return false;
+            }
+            let mut item = 0;
+            while item < stage.len() {
+                if same_bytes(self.package, stage[item]) {
+                    named = true;
+                }
+                item += 1;
+            }
+            index += 1;
+        }
+        named
+    }
+
     /// The whole plan as one command line, for the log and the progress panel.
     ///
     /// This is what the plan would amount to, shown as a single line so the user
@@ -646,6 +708,68 @@ mod tests {
         assert_eq!(
             plan.stage_command_line(&["dms", "dms-cli"]),
             "pkexec rum install -y dms dms-cli"
+        );
+    }
+
+    #[test]
+    fn a_plan_that_cannot_install_anything_is_not_well_formed() {
+        let base = InstallPlan {
+            package: "dms",
+            stages: &[&["quickshell-git"], &["dms"]],
+            program: "pkexec",
+            args: &["rum", "install", "-y"],
+        };
+        assert!(base.is_well_formed(), "the shape DMS actually uses");
+        assert!(base.packages().len() == 2, "{}", base.packages().len());
+
+        // The three ways, each of which looks fine written down.
+        for (what, plan) in [
+            (
+                "no stages",
+                InstallPlan {
+                    stages: &[],
+                    ..base
+                },
+            ),
+            (
+                "an empty stage",
+                InstallPlan {
+                    stages: &[&[], &["dms"]],
+                    ..base
+                },
+            ),
+            (
+                "a package in no stage",
+                InstallPlan {
+                    package: "somewhere-else",
+                    stages: &[&["quickshell-git"]],
+                    ..base
+                },
+            ),
+        ] {
+            assert!(!plan.is_well_formed(), "{what} must not pass");
+        }
+    }
+
+    #[test]
+    fn an_empty_plan_installs_nothing_rather_than_everything() {
+        // The reason the guard above exists. `all` over an empty iterator is
+        // vacuously true, so an empty plan used to answer "already installed"
+        // and send the switch on to start a shell that was never installed.
+        let empty = InstallPlan {
+            package: "dms",
+            stages: &[],
+            program: "pkexec",
+            args: &["rum", "install", "-y"],
+        };
+        assert!(empty.packages().is_empty());
+        assert!(
+            empty.packages().iter().all(|_| true),
+            "this is the trap: the old check answered yes here"
+        );
+        assert!(
+            !empty.is_well_formed(),
+            "so the check has to be refused before it is asked"
         );
     }
 
