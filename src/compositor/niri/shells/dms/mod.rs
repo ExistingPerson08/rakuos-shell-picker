@@ -25,7 +25,6 @@ const PORT: Port = Port {
         ".local/state/DankMaterialShell",
     ],
     backup_extra_paths: &[".local/state/DankMaterialShell"],
-    health_socket: None,
 };
 
 pub static SHELL: Shell = Shell::join(IDENTITY, PORT);

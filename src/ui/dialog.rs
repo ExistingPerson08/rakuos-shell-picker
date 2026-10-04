@@ -304,7 +304,6 @@ mod tests {
         skel_extra_paths: &[],
         backup_extra_paths: &[],
         mechanism: StartMechanism::DirectProcess,
-        health_socket: None,
         logo: None,
     };
 
@@ -324,7 +323,6 @@ mod tests {
         skel_extra_paths: &[],
         backup_extra_paths: &[],
         mechanism: StartMechanism::DirectProcess,
-        health_socket: None,
         logo: None,
     };
 
@@ -344,7 +342,6 @@ mod tests {
         skel_extra_paths: &[],
         backup_extra_paths: &[],
         mechanism: StartMechanism::DirectProcess,
-        health_socket: None,
         logo: None,
     };
 

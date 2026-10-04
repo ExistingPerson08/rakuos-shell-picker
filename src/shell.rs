@@ -51,6 +51,32 @@ pub enum StartMechanism {
     DirectProcess,
 }
 
+impl StartMechanism {
+    /// Whether this shell is started by a systemd user unit.
+    ///
+    /// The two answers here have to agree with
+    /// [`Shell::systemd_user_unit`](crate::shell::Shell::systemd_user_unit), and
+    /// `a_mechanism_agrees_with_its_unit_name` fails the build if they ever stop
+    /// doing so. `start` and `verify` both branch on this method rather than on
+    /// the unit being present, so that a shell launched by the compositor's own
+    /// autostart is not silently treated as a direct process — the answer would
+    /// come out the same but for the wrong reason, and the day it stopped coming
+    /// out the same there would be nothing to notice the change.
+    pub fn uses_systemd_unit(self) -> bool {
+        matches!(self, StartMechanism::SystemdUserUnit)
+    }
+
+    /// Whether a shell started this way has to be told to detach.
+    ///
+    /// Niri runs a `spawn-at-startup` command and waits for it to return before
+    /// continuing with the rest of its startup, so a shell that stays in the
+    /// foreground stalls the session behind it. Hyprland's `exec_on` and a bare
+    /// spawn do not wait, so nothing there needs the flag.
+    pub fn needs_detached_start(self) -> bool {
+        matches!(self, StartMechanism::SpawnAtStartup)
+    }
+}
+
 /// Where a package lives on a RakuOS system.
 ///
 /// RakuOS keeps the read-only base image and the writable overlay in two
@@ -175,9 +201,6 @@ pub struct Port {
     /// so adding a path to `skel_extra_paths` without adding it here fails the test
     /// suite rather than silently shipping an unrecoverable switch.
     pub backup_extra_paths: &'static [&'static str],
-    /// Health probe: a process name or an IPC socket path. Empty means the
-    /// process name is used.
-    pub health_socket: Option<&'static str>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -225,10 +248,21 @@ pub struct Shell {
     /// How to install this shell if it is missing. `None` means there is nothing
     /// to run: either the base image already has it, or no repository carries it.
     pub install_plan: Option<InstallPlan>,
+    /// How this shell gets started on this compositor.
+    ///
+    /// Not decoration, and not something the backend re-derives: `apply::start`
+    /// branches on it to decide between a unit and a spawn, and `apply::verify`
+    /// reads it to decide what "up" means for this shell. Every value is
+    /// consistent with `systemd_user_unit` above, and
+    /// `a_mechanism_agrees_with_its_unit_name` enforces that.
+    ///
+    /// `Autostart`, `SpawnAtStartup` and `StartEvent` have no unit because the
+    /// compositor's own configuration is the launcher. `SpawnAtStartup` stays
+    /// distinct from `Autostart` even though neither has a unit, because Niri waits
+    /// for a startup command to return before continuing — a foreground shell
+    /// there would stall the session — so that mechanism is what decides the
+    /// command has to carry `--daemon`.
     pub mechanism: StartMechanism,
-    /// Health probe: a process name or an IPC socket path. Empty means the
-    /// process name is used.
-    pub health_socket: Option<&'static str>,
     /// File name inside the project `assets/` directory.
     pub logo: Option<&'static str>,
 }
@@ -265,7 +299,6 @@ impl Shell {
             mechanism: port.mechanism,
             skel_extra_paths: port.skel_extra_paths,
             backup_extra_paths: port.backup_extra_paths,
-            health_socket: port.health_socket,
         }
     }
 }

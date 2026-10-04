@@ -36,7 +36,6 @@ const PORT: Port = Port {
         ".local/state/DankMaterialShell",
         ".local/share/applications/dev.noctalia.Noctalia.desktop",
     ],
-    health_socket: None,
 };
 
 pub static SHELL: Shell = Shell::join(IDENTITY, PORT);

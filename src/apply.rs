@@ -741,7 +741,19 @@ fn start(shell: &Shell, progress: &mut dyn FnMut(&str)) -> Result<(), (&'static 
         }
     }
 
-    if let Some(unit) = shell.systemd_user_unit {
+    // Which branch to take comes from `mechanism`, not from the presence of a unit
+    // name. They agree today, and a_mechanism_agrees_with_its_unit_name keeps
+    // them honest, but the enum is the one that also knows about the compositor
+    // launchers — where there is no unit because the compositor's own config is
+    // what runs the shell. Reading the unit instead would make those shells look
+    // like direct processes, which is the same answer for the wrong reason.
+    if shell.mechanism.uses_systemd_unit() {
+        let unit = shell.systemd_user_unit.ok_or_else(|| {
+            (
+                "start",
+                format!("{} claims a systemd unit but names none", shell.id),
+            )
+        })?;
         let name = format!("{unit}.service");
         progress(&format!("starting {name}"));
         let out = run("systemctl", &["--user", "start", &name])
@@ -758,20 +770,24 @@ fn start(shell: &Shell, progress: &mut dyn FnMut(&str)) -> Result<(), (&'static 
         return Ok(());
     }
 
+    // Niri waits for a `spawn-at-startup` command to return before it continues,
+    // so a shell started that way has to detach or the session stalls behind it.
+    // Hyprland's `exec_on` does not wait, and leaving the flag off there keeps the
+    // process a child this program can account for.
+    let mut argv: Vec<&str> = shell.start_argv.to_vec();
+    if shell.mechanism.needs_detached_start() {
+        argv.push("--daemon");
+    }
+
     progress(&format!(
         "starting {} ({})",
         shell.display_name,
-        shell.start_command()
+        argv.join(" ")
     ));
-    Command::new(shell.start_argv[0])
-        .args(&shell.start_argv[1..])
+    Command::new(argv[0])
+        .args(&argv[1..])
         .spawn()
-        .map_err(|e| {
-            (
-                "start",
-                format!("cannot run {}: {e}", shell.start_command()),
-            )
-        })?;
+        .map_err(|e| ("start", format!("cannot run {}: {e}", argv.join(" "))))?;
     Ok(())
 }
 
@@ -783,7 +799,18 @@ fn verify(
 ) -> Result<(), (&'static str, String)> {
     let deadline = Instant::now() + START_GRACE;
 
-    if let Some(unit) = shell.systemd_user_unit {
+    if shell.mechanism.uses_systemd_unit() {
+        // Asking systemd whether the unit is active is a stronger answer than
+        // looking for a process: a unit can be active while the shell inside it is
+        // still failing to draw, and a process can be alive while the unit that
+        // should supervise it is not. See `a_mechanism_agrees_with_its_unit_name`
+        // for why the unit name is guaranteed to be there here.
+        let unit = shell.systemd_user_unit.ok_or_else(|| {
+            (
+                "verify",
+                format!("{} claims a systemd unit but names none", shell.id),
+            )
+        })?;
         let name = format!("{unit}.service");
         progress(&format!("waiting for {name} to report active"));
         loop {

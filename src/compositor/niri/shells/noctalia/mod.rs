@@ -25,7 +25,6 @@ const PORT: Port = Port {
     mechanism: StartMechanism::SpawnAtStartup,
     skel_extra_paths: &[],
     backup_extra_paths: &[],
-    health_socket: None,
 };
 
 pub static SHELL: Shell = Shell::join(IDENTITY, PORT);

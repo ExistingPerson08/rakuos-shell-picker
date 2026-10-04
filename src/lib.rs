@@ -55,6 +55,7 @@ mod registry_tests {
 
     use super::compositor;
     use super::shells;
+    use crate::compositor::Compositor;
 
     fn assets() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")
@@ -372,6 +373,75 @@ mod registry_tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_mechanism_agrees_with_its_unit_name() {
+        // `apply::start` and `apply::verify` branch on the mechanism and then read
+        // the unit name, so a shell could claim one and not supply the other. Both
+        // directions are checked because `start` only consults the unit *after*
+        // asking the mechanism, which is exactly why the two can drift apart.
+        for compositor in super::compositor::all() {
+            for shell in compositor.shells() {
+                assert_eq!(
+                    shell.mechanism.uses_systemd_unit(),
+                    shell.systemd_user_unit.is_some(),
+                    "{}/{}: mechanism {:?} and unit {:?} have to agree",
+                    compositor.id(),
+                    shell.id,
+                    shell.mechanism,
+                    shell.systemd_user_unit
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_a_detached_start_detaches() {
+        // Not "only niri": niri/dms is started by a systemd unit and never reaches
+        // the spawn branch at all, so it has no business carrying the flag. The
+        // property is that the flag appears for exactly the shells whose launcher
+        // waits on the command returning, which today means niri's compositorside
+        // launcher and Noctalia on niri — the one niri shell that is spawned
+        // directly rather than through a unit.
+        for compositor in super::compositor::all() {
+            for shell in compositor.shells() {
+                if shell.mechanism.uses_systemd_unit() {
+                    assert!(
+                        !shell.mechanism.needs_detached_start(),
+                        "{}/{} goes through systemd, so a flag would never be seen",
+                        compositor.id(),
+                        shell.id
+                    );
+                }
+            }
+        }
+
+        let niri = super::compositor::all()
+            .into_iter()
+            .find(|c| c.id() == "niri")
+            .expect("niri registered");
+        let noctalia = niri
+            .shells()
+            .iter()
+            .find(|s| s.id == "noctalia")
+            .expect("noctalia on niri");
+        assert_eq!(
+            noctalia.mechanism,
+            super::shell::StartMechanism::SpawnAtStartup
+        );
+        assert!(noctalia.mechanism.needs_detached_start());
+
+        // Nothing on hyprland detaches, whatever its mechanism: hyprland.lua's
+        // exec_on does not wait for the command, so the flag buys nothing and
+        // costs the process accounting `stop` relies on.
+        for shell in super::compositor::HYPRLAND.shells() {
+            assert!(
+                !shell.mechanism.needs_detached_start(),
+                "hyprland/{} should not detach",
+                shell.id
+            );
         }
     }
 

@@ -38,7 +38,6 @@ const PORT: Port = Port {
         ".local/share/applications/dev.noctalia.Noctalia.desktop",
     ],
     backup_extra_paths: &[".local/share/applications/dev.noctalia.Noctalia.desktop"],
-    health_socket: None,
 };
 
 pub static SHELL: Shell = Shell::join(IDENTITY, PORT);
