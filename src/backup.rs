@@ -226,6 +226,12 @@ fn copy_tree(from: &Path, to: &Path) -> Result<Tree> {
         // what it is, so restoring does not silently replace it with a real one.
         let target =
             fs::read_link(from).with_context(|| format!("reading link {}", from.display()))?;
+        // The destination's parent may not exist yet: a backup root holds one tree
+        // per source, so a symlinked launcher is usually the first thing written
+        // under a deep path. symlink cannot create it.
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        }
         let _ = fs::remove_file(to);
         symlink(&target, to).with_context(|| format!("linking {}", to.display()))?;
         tree.entries.insert(
@@ -236,7 +242,36 @@ fn copy_tree(from: &Path, to: &Path) -> Result<Tree> {
         );
         return Ok(tree);
     }
+    // A source can be a single file, not only a directory. Noctalia's launcher is
+    // exactly that: DMS's skel installs a `.desktop` at that path to hide it, so the
+    // backup has to copy the file itself or the switch destroys it with no copy.
+    // `walk_into` would call read_dir on it and fail with "Not a directory", which
+    // is how this was found — the unit tests all used directory sources.
+    if from.is_file() {
+        return copy_single_file(from, to, &mut tree);
+    }
     walk_into(from, from, to, &mut tree).map(|()| tree)
+}
+
+/// Copy one file, recorded as a single entry under an empty relative key.
+///
+/// The manifest has no separate notion of "this tree was one file", so the entry
+/// goes in under the same empty key a symlinked root uses. Restoring walks the
+/// keys rather than trusting the tree to be a directory, which is why that works
+/// for both.
+fn copy_single_file(from: &Path, to: &Path, tree: &mut Tree) -> Result<Tree> {
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    }
+    let bytes = fs::metadata(from)
+        .with_context(|| format!("reading {}", from.display()))?
+        .len();
+    fs::copy(from, to)
+        .with_context(|| format!("copying {} to {}", from.display(), to.display()))?;
+    tree.files = 1;
+    tree.bytes = bytes;
+    tree.entries.insert(String::new(), Entry::File { bytes });
+    Ok(tree.clone())
 }
 
 /// Recursive copy that fills in `tree`.
@@ -302,6 +337,15 @@ fn walk(root: &Path) -> Result<Tree> {
     if !root.exists() {
         bail!("{} is missing from the backup", root.display());
     }
+    // A source may have been a single file, not a directory -- Noctalia's launcher
+    // is one. `collect` reads a directory and would report "Not a directory" on it.
+    if root.is_file() {
+        let bytes = fs::metadata(root)?.len();
+        tree.files = 1;
+        tree.bytes = bytes;
+        tree.entries.insert(String::new(), Entry::File { bytes });
+        return Ok(tree);
+    }
     collect(root, root, &mut tree)?;
     Ok(tree)
 }
@@ -354,6 +398,81 @@ mod tests {
     fn write(path: &Path, contents: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, contents).unwrap();
+    }
+
+    #[test]
+    fn a_backup_of_a_single_file_round_trips() {
+        // Noctalia's launcher is a file, not a directory, and a switch replaces it.
+        // Backup, verify and restore all have to cope with a tree that holds one
+        // file under an empty key. This was found by running the backup against a
+        // real setup: every unit test used a directory, so `read_dir` on the launcher
+        // failed with "Not a directory" and no test had caught it.
+        let root = sandbox("single-file");
+        let home = root.join("home");
+        let launcher = home.join(".local/share/applications/dev.noctalia.Noctalia.desktop");
+        write(&launcher, "[Desktop Entry]\nName=Noctalia\nExec=noctalia\n");
+
+        let backup = Backup::create(
+            &root.join("backups"),
+            "launcher",
+            std::slice::from_ref(&launcher),
+            &home,
+        )
+        .expect("a single file is a valid backup source");
+        backup.verify().expect("verify must read a file back");
+
+        let key = ".local/share/applications/dev.noctalia.Noctalia.desktop";
+        let tree = &backup.manifest.trees[key];
+        assert_eq!(tree.files, 1);
+        assert_eq!(tree.bytes, 44, "the byte count is the file's own");
+        assert!(
+            tree.entries.contains_key(""),
+            "recorded under the empty key"
+        );
+
+        // And it comes back: replace it with something else, restore, compare.
+        write(&launcher, "clobbered");
+        let files = backup
+            .restore(&home)
+            .expect("restore must put a single file back");
+        assert_eq!(files, 1);
+        assert_eq!(
+            std::fs::read_to_string(&launcher).unwrap(),
+            "[Desktop Entry]\nName=Noctalia\nExec=noctalia\n"
+        );
+    }
+
+    #[test]
+    fn a_symlinked_file_is_recorded_as_a_link() {
+        // The launcher can be a symlink to something in /usr/share, which is what a
+        // package install leaves behind. Restoring has to reproduce the link rather
+        // than a copy of its target, or the user silently loses the link.
+        let root = sandbox("symlinked-file");
+        let home = root.join("home");
+        let target = root.join("elsewhere.desktop");
+        write(&target, "[Desktop Entry]\n");
+        let launcher = home.join(".local/share/applications/dev.noctalia.Noctalia.desktop");
+        fs::create_dir_all(launcher.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&target, &launcher).unwrap();
+
+        let backup = Backup::create(
+            &root.join("backups"),
+            "linked",
+            std::slice::from_ref(&launcher),
+            &home,
+        )
+        .expect("a symlinked file is a valid source");
+        backup
+            .verify()
+            .expect("verify must follow the recorded link");
+
+        let key = ".local/share/applications/dev.noctalia.Noctalia.desktop";
+        match backup.manifest.trees[key].entries.get("") {
+            Some(Entry::Symlink { target: recorded }) => {
+                assert_eq!(recorded, &target, "recorded as a link, not a copy");
+            }
+            other => panic!("expected a symlink entry, got {other:?}"),
+        }
     }
 
     #[test]
@@ -604,7 +723,11 @@ mod tests {
     }
 
     /// Copies the real user config. Ignored so `cargo test` never touches it by
-    /// accident; run with `cargo test -- --ignored`.
+    /// accident; run with `cargo test -- --include-ignored`.
+    ///
+    /// This is the test that found the single-file bug: every unit test here used
+    /// a directory as its source, and Noctalia's launcher is a file, so nothing
+    /// covered it until this ran against an actual desktop..
     ///
     /// Restoring is deliberately not part of this: writing over a live desktop
     /// is not something a test should do, even into its own backup.

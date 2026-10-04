@@ -270,13 +270,19 @@ pub struct Shell {
 impl Shell {
     /// The record the rest of the program reads: one shell, on one compositor.
     ///
-    /// `const`, so a per-compositor file can state its result as a plain
-    /// declaration and every consumer can take a `&'static Shell`:
+    /// `const`, so a per-shell file can state its result as a plain declaration
+    /// and every consumer can take a `&'static Shell`:
     ///
-    /// ```ignore
-    /// const PORT: Port = Port { /* only what differs here */ };
+    /// ```text
+    /// const PORT: Port = Port { /* only what differs on this compositor */ };
     /// pub static SHELL: Shell = Shell::join(IDENTITY, PORT);
     /// ```
+    ///
+    /// A doc comment rather than a doctest, because a real snippet needs an
+    /// `IDENTITY` and a complete `Port` to mean anything, and a partial one would
+    /// have to be `ignore`d to compile — which is a comment with extra steps. The
+    /// declarations this stands for are the seven files under
+    /// `compositor/*/shells/*/`, and those are compiled by the build.
     ///
     /// Takes both halves by value. They are `Copy`, so this is a field-by-field
     /// assembly with nothing borrowed and nothing shared between the two

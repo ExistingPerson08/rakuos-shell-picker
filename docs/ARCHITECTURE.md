@@ -248,13 +248,25 @@ berbeda antar compositor, semua path tetap di dalam `$HOME`, setiap
 `skel_extra_paths` benar-benar ada di skel compositor itu, roundtrip state
 session, dan collision nama backup.
 
-Test yang butuh display server ditandai `#[ignore]`:
+Dua test membaca `$HOME` asli dan ditandai `#[ignore]`, supaya `cargo test`
+tidak pernah menyalin konfigurasi desktop tanpa sengaja. Semuanya hijau,
+termasuk keduanya:
 
 ```bash
-cargo test -- --ignored
+cargo test -- --include-ignored
 ```
 
+Jangan comorbidkan yang ini. Salah satunya yang menemukan bug file tunggal: unit
+test lain semua memakai direktori sebagai sumber, sementara launcher Noctalia
+adalah sebuah file, jadi tidak ada yang menutupinya sampai test ini dijalankan
+di desktop sungguhan.
+
 Sebelum commit, `cargo fmt --check`, `cargo clippy --all-targets`, dan
-`cargo test` harus bersih. Suite ini pernah punya test backup yang gagal 13 dari
-15 kali karena nama directory berbasis milidetik, jadi kalau sebuah test gagal
-dengan intermittently, cek dulu apakah itu memang flaky sebelum memperbaikinya.
+`cargo test` harus bersih.
+
+Suite ini pernah punya test yang gagal 13 dari 15 kali karena nama directory
+backup berbasis milidetik. Jadi kalau sebuah test gagal tanpa sebab yang jelas,
+periksa dulu memang tidak _flaky_: jalankan beberapa kali. Kalau konsisten gagal,
+coba cari test yang tidak pernah jalan dalam keadaan nyata. Dua bug terbaru di
+sini ketahuan begitu, dan keduanya ada di jalur yang paling jarang dilewati
+orang.

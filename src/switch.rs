@@ -946,7 +946,7 @@ mod prepare_tests {
 
     /// Runs the real prepare() against the real config and the real backup
     /// directory. Ignored so `cargo test` never writes there by accident; run
-    /// with `cargo test -- --ignored`.
+    /// with `cargo test -- --include-ignored`.
     ///
     /// It only copies. Nothing is installed, stopped or started, which is the
     /// whole point of where the order currently stops.
