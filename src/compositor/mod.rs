@@ -1,15 +1,24 @@
 //! Compositors the picker knows how to switch shells for.
 //!
 //! This is the only registry the UI walks: each tab comes from here, and each
-//! tab brings its own shell list. Adding Niri shells later means adding files
-//! under `compositor::niri::shells`, with no change to the UI.
+//! tab brings its own shell list. Hyprland is the only entry for now. Niri was
+//! registered here and has been removed — see `compositor::niri` for what
+//! bringing it back involves, and why it was not a tab with an empty skel.
 //!
 //! Each compositor also knows how to recognise itself, because the picker must
 //! never act on a compositor that is not the one actually running. See
 //! `docs/SAFETY.md` for the rules this implements.
+//!
+//! With one compositor registered, the cross-compositor refusal is unreachable
+//! from the running app: no card can belong to a compositor that is not the one
+//! on screen. The rule and its tests stay, because they are the reason adding a
+//! second compositor later is a matter of registering it and writing a skel.
 
 pub mod hyprland;
 pub mod niri;
+
+#[cfg(test)]
+pub mod fake;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -76,19 +85,22 @@ pub trait Compositor: Sync {
 }
 
 pub static HYPRLAND: hyprland::Hyprland = hyprland::Hyprland;
-pub static NIRI: niri::Niri = niri::Niri;
 
 /// Tab order is the order of this list.
+///
+/// One entry, so the app opens on a tab bar of one. That is the whole point of
+/// removing Niri rather than leaving it registered: a registered compositor
+/// promises a working page, and an empty skel could only ever refuse.
 pub fn all() -> Vec<&'static dyn Compositor> {
-    vec![&HYPRLAND, &NIRI]
+    vec![&HYPRLAND]
 }
 
 /// The tab shown when the app opens.
 ///
-/// The running compositor's tab, never a fixed one. Opening on a blocked page
-/// would greet a Niri user with a yellow refusal and no hint that the other tab
-/// was the usable one. Falls back to the first registered compositor when
-/// nothing is detected, because a tab still has to be selected.
+/// The running compositor's tab, never a fixed one, because opening on a
+/// compositor's blocked page would greet the user with a refusal and no hint
+/// that another tab was the usable one. Falls back to the first registered
+/// compositor when nothing is detected, because a tab still has to be selected.
 pub fn default_id(detection: &Detection) -> &'static str {
     if let Some(current) = detection.current {
         if all().iter().any(|c| c.id() == current) {
@@ -276,7 +288,7 @@ mod tests {
     fn every_compositor_is_reported_even_when_not_running() {
         let d = detect_with(&env(&[]));
         let ids: Vec<_> = d.statuses.iter().map(|s| s.id).collect();
-        assert_eq!(ids, ["hyprland", "niri"]);
+        assert_eq!(ids, ["hyprland"]);
         assert!(d.statuses.iter().all(|s| !s.detected));
     }
 

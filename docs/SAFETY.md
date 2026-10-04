@@ -7,11 +7,16 @@ dipertahankan, bukan aturannya yang dilonggarkan.
 ## Yang tidak boleh pernah terjadi
 
   1. **Batasi perubahan hanya pada konfigurasi yang berkaitan dengan shell.** Picker hanya boleh mengelola file/folder yang jelas berkaitan dengan shell target; aplikasi umum tidak boleh disentuh. Semua perubahan wajib dibackup, tanpa `rm`/`mv` tanpa backup, dan tidak boleh truncate.
-2. **Tidak pernah me-restart atau mematikan compositor.** Hyprland/Niri yang
-   sedang menjalankan sesi user tetap jalan selama picker hidup. Kalau picker
-   mati, compositor harus tetap hidup dan shell harus tetap bisa jalan ulang.
-3. **Tidak menyentuh compositor lain.** Saat switch di tab Niri, konfigurasi
-   Hyprland tidak boleh dibaca untuk ditulis, dan sebaliknya.
+2. **Tidak pernah me-restart atau mematikan compositor.** Compositor yang sedang
+   menjalankan sesi user tetap jalan selama picker hidup. Kalau picker mati,
+   compositor harus tetap hidup dan shell harus tetap bisa jalan ulang.
+3. **Tidak menyentuh compositor lain.** Konfigurasi sebuah compositor tidak boleh
+   dibaca untuk ditulis oleh switch yang berjalan di compositor lain.
+
+   Aturan 3 sekarang tidak bisa dicapai dari aplikasi yang sedang berjalan:
+   hanya Hyprland yang terdaftar, jadi tidak ada tab milik compositor lain untuk
+   diklik. Aturannya tetap ada karena compositor berikutnya akan membutuhkannya,
+   dan tetap diuji lewat `compositor::fake` yang hanya ada di build test.
 4. **Tidak mengarang lokasi konfigurasi.** Kalau `config_dir` untuk sebuah shell
    belum diketahui, backend itu belum boleh jalan — bukan menebak
    `~/.config/<nama>`.
@@ -28,12 +33,13 @@ dipertahankan, bukan aturannya yang dilonggarkan.
 Compositor tidak berganti lewat picker. Mengganti compositor berarti mengganti
 image, dan itu urusan **"RakuOS system management"**, bukan aplikasi ini.
 
-Jadi saat user berada di Hyprland dan mengklik tab Niri, semua aksi di tab itu
-harus **ditolak**, bukan dijalankan lalu gagal setengah jalan.
+Jadi kalau ada tab milik compositor lain, semua aksi di tab itu harus
+**ditolak**, bukan dijalankan lalu gagal setengah jalan.
 
 ### Guard tidak punya arah
 
-Penolakan ini **simetris**. Kalau user nanti berada di Niri, tab Hyprland yang
+Penolakan ini **simetris**, dan itu bukan hal yang bisa dibuktikan dengan satu
+compositor. Kalau user nanti berada di compositor lain, tab Hyprland yang
 menjadi yang ditolak, dengan alasannya terbalik: "hyprland is not the running
 compositor — niri is". Tidak ada kode yang menyebut Hyprland sebagai pihak yang
 berwenang.
@@ -41,9 +47,12 @@ berwenang.
 Aturannya satu perbandingan: `detection.current != compositor.id()`. Karena itu
 menambah compositor ketiga tidak perlu menyentuh logika guard sama sekali.
 
+Kedua arah diuji terhadap compositor yang tidak terdaftar (`compositor::fake`),
+karena compositor sungguhan kedua tidak ada lagi untuk dijadikan alat uji.
+
 App juga membuka tab compositor yang sedang jalan, bukan tab pertama. Kalau tidak,
-user Niri akan dibuka ke halaman Hyprland yang ditolak, dengan banner kuning dan
-tanpa petunjuk bahwa tab sebelahnya yang bisa dipakai.
+user compositor lain akan dibuka ke halaman Hyprland yang ditolak, dengan banner
+kuning dan tanpa petunjuk bahwa tab sebelahnya yang bisa dipakai.
 
 Kedua arah ini diuji (`the_guard_works_in_both_directions`,
 `the_running_compositor_is_the_only_one_that_offers_a_switch`,
@@ -57,8 +66,13 @@ Envvar khusus compositor, yang paling bisa dipercaya:
 | Compositor | Penanda | Andal |
 |---|---|---|
 | Hyprland | `HYPRLAND_INSTANCE_SIGNATURE` terisi | ya |
-| Niri | `NIRI_SOCKET` ada dan socket-nya bisa dibuka | ya |
+| Niri | `NIRI_SOCKET` ada dan socket-nya bisa dibuka | ya, tapi tidak terdaftar |
 | Sway | `SWAYSOCK` | ya |
+
+Hanya Hyprland yang terdaftar, jadi `detect_with` hanya akan pernah menyebut
+`hyprland` atau tidak sama sekali. Sesi Niri karena itu tidak terdeteksi, dan
+seluruh klik ditolak dengan `RefuseUndetected`, bukan menebak compositor mana
+yang sedang berjalan.
 
 Ditambah pemeriksaan dasar yang wajib lolos dulu: `WAYLAND_DISPLAY` dan
 `XDG_RUNTIME_DIR` terisi.
@@ -89,9 +103,13 @@ aturan; UI cuma supaya user tidak dicoba-coba.
 Pesan penolakan yang dipakai:
 
 ```
-niri is not the running compositor
-Switching compositor means switching image — use "RakuOS system management".
+niri is not the running compositor.
+niri is running. Switch image in "RakuOS system management".
 ```
+
+Baris kedua menyebut compositor yang **sedang berjalan**. `dialog` sebelumnya
+menerima `current` lalu membuangnya, jadi user diberi tahu apa yang diblokir
+tanpa diberi tahu apa yang harus dipakai sebagai gantinya.
 
 ## Packages: `rpm -q` tidak bisa dipercaya
 

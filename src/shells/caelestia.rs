@@ -6,8 +6,8 @@
 //! `quickshell` process as proof that Caelestia is set up.
 //!
 //! It has no official Niri port: upstream ships a Hyprland shell, and the Niri
-//! versions that exist are third party forks. Its absence from the Niri registry is
-//! therefore deliberate and is asserted by a test.
+//! versions that exist are third party forks. That was why it was left out of the
+//! Niri registry, which `compositor::niri` records for whoever brings it back.
 //!
 //! Verification is not settled either, and is deliberately left unresolved here.
 //! `quickshell` is a shared runtime, so a live process with that name proves

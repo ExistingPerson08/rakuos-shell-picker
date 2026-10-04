@@ -735,22 +735,26 @@ mod prepare_tests {
     #[test]
     fn each_compositor_backs_up_its_own_config_and_not_the_other_one() {
         // The compositor's config directory is the one path in the list that
-        // follows the compositor. Saving Hyprland's while running Niri would be a
-        // backup of a file nothing touched, and missing Niri's would leave the
-        // config the switch really edits unprotected.
+        // follows the compositor. Backing up Hyprland's while running something
+        // else would be a backup of a file nothing touched, and missing the
+        // running one's would leave the config the switch really edits
+        // unprotected.
         let hypr = list_for(&crate::compositor::HYPRLAND, Some(&DMS));
         assert!(
             hypr.contains(&".config/hypr".to_string()),
             "Hyprland list must include its own config: {hypr:?}"
         );
         assert!(
-            !hypr.contains(&".config/niri".to_string()),
-            "Hyprland list must not mention Niri: {hypr:?}"
+            !hypr.contains(&".config/fake".to_string()),
+            "Hyprland list must not mention another compositor: {hypr:?}"
         );
 
-        let niri = crate::switch::backup_sources(
+        // The second compositor is the test-only one, because Niri is no longer
+        // registered. The rule is the same either way: the list is the
+        // compositor's own, not a fixed set.
+        let other = crate::switch::backup_sources(
             &PathBuf::from("/home/tester"),
-            &crate::compositor::NIRI,
+            &crate::compositor::fake::FAKE,
             Some(&DMS),
         )
         .iter()
@@ -762,12 +766,12 @@ mod prepare_tests {
         })
         .collect::<Vec<_>>();
         assert!(
-            niri.contains(&".config/niri".to_string()),
-            "Niri list must include its own config: {niri:?}"
+            other.contains(&".config/fake".to_string()),
+            "the second compositor's list must include its own config: {other:?}"
         );
         assert!(
-            !niri.contains(&".config/hypr".to_string()),
-            "Niri list must not mention Hyprland: {niri:?}"
+            !other.contains(&".config/hypr".to_string()),
+            "the second compositor's list must not mention Hyprland: {other:?}"
         );
     }
 
@@ -783,7 +787,7 @@ mod prepare_tests {
     fn the_wrong_compositor_is_refused_before_anything_is_copied() {
         let (root, home) = scratch("wrong-compositor");
         let err = prepare(
-            &crate::compositor::NIRI,
+            &crate::compositor::fake::FAKE,
             Some("hyprland"),
             &DMS,
             Some(&DMS),
@@ -796,7 +800,7 @@ mod prepare_tests {
         assert_eq!(
             err,
             Refusal::Compositor {
-                target: "niri".to_string(),
+                target: "fake".to_string(),
                 current: Some("hyprland".to_string())
             }
         );

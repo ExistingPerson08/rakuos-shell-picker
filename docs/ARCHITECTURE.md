@@ -37,12 +37,8 @@ src/compositor/             satu folder per compositor
       caelestia/mod.rs      belum ada skel — switch ke Caelestia ditolak
       ambxst/mod.rs         belum ada skel — config-nya belum diketahui
   niri/
-    mod.rs
-    shells/
-      mod.rs
-      noctalia/mod.rs       belum ada skel — switch ke Niri ditolak, SAFETY.md
-      dms/mod.rs
-      ambxst/mod.rs         (caelestia tidak ada: upstream hanya kirim Hyprland)
+    mod.rs                  kosong — dicadangkan, catatannya di sana
+  fake.rs                   compositor kedua untuk test, hanya di build test
 
 src/shell.rs                tipe Identity + Port + Shell, dan cara memeriksa satu shell
 src/session.rs              state active/previous di XDG
@@ -52,7 +48,7 @@ src/session.rs              state active/previous di XDG
 
 Dulu setiap `(compositor, shell)` punya satu `Shell` penuh, jadi data yang
 benar-benar sama ditulis dua kali: `upstream`, `package`, `install_plan`, dan
-`companion_systemd_user_units` ulang untuk Noctalia di Hyprland dan di Niri.
+`companion_systemd_user_units` ulang untuk satu shell di dua compositor.
 Tidak ada yang menolak compile kalau salah satu tidak sengaja diubah — dan
 akibatnya bukan error kompilasi, melainkan satu tab memeriksa paket yang tab
 lain memasang.
@@ -90,8 +86,9 @@ session ──▶ shell
 - `shell.rs` **tidak** tahu shell apa yang ada. Daftar shell milik tiap
   compositor. `shell.rs` hanya berisi tipe dan cara menginspeksinya.
 - `compositor/niri/` tidak boleh mengimpor dari `compositor/hyprland/`.
-- `compositor/*/shells/*.rs` boleh mengimpor `crate::shells::*`, dan tidak
-  boleh mengimpor `crate::shells` milik compositor lain.
+- `compositor/<a>/` tidak boleh mengimpor dari `compositor/<b>/` untuk `a != b`.
+- `compositor/*/shells/*/mod.rs` boleh mengimpor `crate::shells::*`, dan tidak
+  boleh mengimpor milik compositor lain.
 
 ## Test yang menjaga pemisahan ini
 
@@ -170,7 +167,7 @@ pub static ALL: &[Shell] = &[..., nama_baru::SHELL];
 ```
 
 Ulangi folder itu untuk setiap compositor lain yang menawarkannya.
-`niri/shells/nama_baru/mod.rs` akan berbeda di `mechanism` atau
+`<compositor>/shells/nama_baru/mod.rs` akan berbeda di `mechanism` atau
 `systemd_user_unit` kalau memang begitu, dan identik kalau memang sama.
 
 Dua field yang sering tertukar:
@@ -208,26 +205,28 @@ pub mod sway;
 pub static SWAY: sway::Sway = sway::Sway;
 
 pub fn all() -> Vec<&'static dyn Compositor> {
-    vec![&HYPRLAND, &NIRI, &SWAY]
+    vec![&HYPRLAND, &SWAY]
 }
 ```
 
 Compositor dengan daftar kosong otomatis dapat halaman "Coming soon". Setelah
 daftarnya tidak kosong, tambahkan satu folder per shell di `sway/shells/<shell>/`
-— `mod.rs` berisi `Port`-nya sendiri, `skel/` berisi file yang dipasang —
+— `mod.rs` berisi `Port`-nya sendiri, `skel/` berisi file yangpasang —
 dengan `Identity` yang sudah ada di `src/shells/` tidak disalin.
 
-Perhatikan bahwa Niri sudah punya tiga kartu di tabnya, tapi folder
-`niri/shells/*/skel/` belum ada satu pun. Switch ke sana ditolak `apply::plan`
-dengan pesan bahwa config compositor-nya belum ada. Itu disengaja: menampilkan
-apa yang akan didapat lebih jujur daripada diam-diam mengganti sebagian
-konfigurasi lalu meninggalkan sisanya milik shell lama.
+**Skel harus ada sebelum mendaftarkan compositornya.** Niri pernah terdaftar
+dengan tiga port dan tanpa satu pun `skel/`: tabnya menampilkan tiga kartu dan
+tidak satu pun bisa diselesaikan. Switch ditolak `apply::plan` dengan pesan
+bahwa config compositor-nya belum ada — jujur soal penyebab, tapi membuat picker
+tampak rusak. Sekarang `a_skel_is_missing_only_where_the_shell_cannot_be_installed`
+menangkapnya: mendaftarkan compositor yang punya skel kosong adalah test yang
+gagal, bukan tab berisi penolakan.
 
 ## Konvensi nama
 
 | Hal | Nilai |
 |---|---|
-| Id compositor | huruf kecil, nama compositor asli (`hyprland`, `niri`) |
+| Id compositor | huruf kecil, nama compositor asli (`hyprland`, `sway`) |
 | Id shell | huruf kecil, nama upstream (`noctalia`, `dms`) |
 | Konstanta layout | di file `ui/` yang memakainya, bukan di root |
 | File statis | `UPPER_SNAKE` untuk `Shell`, `IDENTITY` untuk `Identity`, `UPPER_SNAKE` untuk `Port` |

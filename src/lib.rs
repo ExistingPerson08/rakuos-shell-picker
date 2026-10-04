@@ -145,31 +145,20 @@ mod registry_tests {
             hyprland.shells().iter().map(|s| s.id).collect::<Vec<_>>(),
             ["noctalia", "dms", "caelestia", "ambxst"]
         );
-
-        let niri = compositor::all()
-            .into_iter()
-            .find(|c| c.id() == "niri")
-            .expect("niri registered");
-        // Noctalia, DMS and Ambxst document Niri support upstream. Caelestia is
-        // absent on purpose: only third party Niri forks exist, so putting it
-        // here would promise something upstream does not ship.
-        assert_eq!(
-            niri.shells().iter().map(|s| s.id).collect::<Vec<_>>(),
-            ["noctalia", "dms", "ambxst"]
-        );
     }
 
     #[test]
-    fn niri_does_not_claim_shells_it_has_no_port_for() {
-        let niri = compositor::all()
-            .into_iter()
-            .find(|c| c.id() == "niri")
-            .expect("niri registered");
-        let ids: Vec<_> = niri.shells().iter().map(|s| s.id).collect();
-        assert!(
-            !ids.contains(&"caelestia"),
-            "caelestia has no official niri port; only community forks"
-        );
+    fn a_compositor_only_offers_shells_it_really_supports() {
+        // Hyprland's four are the ones upstream documents for it. Caelestia is
+        // present because upstream ships a Hyprland shell for it.
+        //
+        // The Niri list this used to check — Noctalia, DMS and Ambxst, without
+        // Caelestia, because only third party forks exist — is recorded in
+        // `compositor::niri`, which is the note for whoever brings it back. There
+        // is no second registered compositor to check, so the rule is stated
+        // rather than exercised: a new entry gets reviewed against upstream, not
+        // against this test.
+        assert_eq!(compositor::all().len(), 1, "only Hyprland is registered");
     }
 
     #[test]
@@ -434,12 +423,15 @@ mod registry_tests {
 
     #[test]
     fn only_a_detached_start_detaches() {
-        // Not "only niri": niri/dms is started by a systemd unit and never reaches
-        // the spawn branch at all, so it has no business carrying the flag. The
-        // property is that the flag appears for exactly the shells whose launcher
-        // waits on the command returning, which today means niri's compositorside
-        // launcher and Noctalia on niri — the one niri shell that is spawned
-        // directly rather than through a unit.
+        // The flag belongs to the shells whose launcher waits on the command
+        // returning. Every other mechanism either has a unit that never reaches
+        // the spawn branch at all, or a compositor start hook that does not wait,
+        // so carrying the flag would cost the process accounting `stop` relies on
+        // and buy nothing.
+        //
+        // Niri was the only thing that ever needed the flag. It is gone, so the
+        // loop below no longer has a shell to catch — which is exactly why the
+        // property is now asserted on the mechanisms themselves, further down.
         for compositor in super::compositor::all() {
             for shell in compositor.shells() {
                 if shell.mechanism.uses_systemd_unit() {
@@ -453,20 +445,23 @@ mod registry_tests {
             }
         }
 
-        let niri = super::compositor::all()
-            .into_iter()
-            .find(|c| c.id() == "niri")
-            .expect("niri registered");
-        let noctalia = niri
-            .shells()
-            .iter()
-            .find(|s| s.id == "noctalia")
-            .expect("noctalia on niri");
-        assert_eq!(
-            noctalia.mechanism,
-            super::shell::StartMechanism::SpawnAtStartup
-        );
-        assert!(noctalia.mechanism.needs_detached_start());
+        // `SpawnAtStartup` is the one mechanism that has to detach, and Niri was
+        // the only thing using it. It is kept for the next project, so the rule is
+        // checked on the mechanism itself rather than on a port that no longer
+        // exists — a variant that stopped detaching would be caught here, while one
+        // nobody uses yet is not caught by the loop above.
+        assert!(super::shell::StartMechanism::SpawnAtStartup.needs_detached_start());
+        for mechanism in [
+            super::shell::StartMechanism::Autostart,
+            super::shell::StartMechanism::StartEvent,
+            super::shell::StartMechanism::SystemdUserUnit,
+            super::shell::StartMechanism::DirectProcess,
+        ] {
+            assert!(
+                !mechanism.needs_detached_start(),
+                "{mechanism:?} does not wait for the command, so detaching buys nothing"
+            );
+        }
 
         // Nothing on hyprland detaches, whatever its mechanism: hyprland.lua's
         // exec_on does not wait for the command, so the flag buys nothing and
@@ -543,41 +538,107 @@ mod registry_tests {
 
     #[test]
     fn a_compositor_with_no_skel_yet_refuses_every_shell_on_it() {
-        // Records what is true today rather than leaving it implied. Niri has no
-        // skel, so a Niri switch cannot complete — and must say so rather than
-        // leave the old configuration in place and call it a switch.
-        let niri = super::compositor::all()
-            .into_iter()
-            .find(|c| c.id() == "niri")
-            .expect("niri registered");
-        let shell = niri
+        // A compositor with no skel has nothing to install, so a switch under it
+        // cannot complete — and has to say so rather than leave the old
+        // configuration in place and call it a switch.
+        //
+        // This was tested through Niri, which had three ports and an empty skel.
+        // Niri is gone, and the rule it was covering is the one that will be
+        // needed again when the next compositor is added, so it is tested through
+        // a compositor with no skel directory at all. That is the more general
+        // shape of the same hole: any compositor whose skel has not been written
+        // yet hits exactly this.
+        let shell = super::compositor::HYPRLAND
             .shells()
             .iter()
             .find(|s| s.id == "noctalia")
-            .expect("noctalia registered for niri");
+            .expect("noctalia registered for hyprland");
 
         let home = std::env::temp_dir()
             .join("rakuos-shell-picker-tests")
-            .join("no-niri-skel");
+            .join("no-skel");
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
 
         let detail = crate::apply::dry_run(
             shell,
-            niri,
+            &super::compositor::fake::FAKE,
             &crate::apply::Context {
                 home: home.clone(),
                 backups_root: home.join("backups"),
-                skel: crate::apply::skel_for("niri", "noctalia"),
+                // Nothing has ever written a skel for this id.
+                skel: crate::apply::skel_for("fake", "noctalia"),
             },
             &mut |_| {},
         )
-        .expect_err("a niri switch must refuse while there is no niri skel");
+        .expect_err("a switch must refuse while there is no skel to install");
 
         assert!(
             detail.contains("nothing to switch to"),
             "the refusal has to explain itself: {detail}"
         );
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_skel_is_missing_only_where_the_shell_cannot_be_installed() {
+        // Hyprland's Caelestia and Ambxst have no skel, and that is deliberate:
+        // neither is in any repository, so the dialog refuses them as not
+        // installed before a skel is ever consulted. Their cards explain
+        // themselves rather than failing halfway through a switch.
+        //
+        // Niri had three ports and no skel at all, and that was not deliberate.
+        // Two of its shells were installable, so the dialog offered them, and the
+        // switch then refused with a message about an empty skel — which reads as
+        // a bug in the picker rather than a decision about Niri.
+        //
+        // So the rule is not that every shell has a skel. It is that a missing
+        // skel is only allowed where the shell cannot be installed anyway. This is
+        // what would have caught Niri, and it is the check that has to exist for
+        // the next compositor.
+        for compositor in compositor::all() {
+            for shell in compositor.shells() {
+                if crate::apply::skel_for(compositor.id(), shell.id).is_dir() {
+                    continue;
+                }
+                assert!(
+                    shell.package.is_none() && shell.install_plan.is_none(),
+                    "{}/{} has no skel, so a switch to it cannot complete — and it \
+                     is installable, so the dialog will offer it and the user will \
+                     be refused only after their backup was taken. Write the skel, \
+                     or take the shell out of the registry until there is one.",
+                    compositor.id(),
+                    shell.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_two_shells_without_a_skel_are_the_two_that_cannot_be_installed() {
+        // Records the deliberate state rather than leaving it implied, because
+        // "no skel" and "no package" are the same fact here and one of them
+        // changing should be noticed.
+        //
+        // Noctalia is the counter-example that keeps this honest: it has a
+        // package and no install plan, and that is correct, because it is in the
+        // base image and never needs installing. It also has a skel, which is why
+        // the rule above leaves it alone.
+        for id in ["caelestia", "ambxst"] {
+            let shell = super::shell::find(id).expect("registered");
+            assert!(
+                shell.package.is_none(),
+                "{id} is in no repository, so it must not claim a package"
+            );
+            assert!(
+                shell.install_plan.is_none(),
+                "{id} has nothing to install from, so it must not claim a plan"
+            );
+            assert!(
+                !crate::apply::skel_for("hyprland", id).is_dir(),
+                "{id} cannot be installed and so is refused before the backup; a \
+                 skel for it would imply a switch that can be completed"
+            );
+        }
     }
 }

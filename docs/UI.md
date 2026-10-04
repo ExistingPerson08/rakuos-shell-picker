@@ -22,7 +22,7 @@ Vertikal, dari atas:
 ```
 +--------------------------------------------------+
 |                                                  |
-|              hyprland   niri                     |   tabbar
+|              hyprland                           |   tabbar
 |                                                  |
 |     +-------+  +-------+  +-------+  +------+   |
 |     | logo | | | logo | | | logo | | | logo |   |   grid 4 kolom
@@ -118,7 +118,7 @@ memindah shell yang sedang berjalan, bukan memasang paket:
 
 | Keadaan | Judul | Body | Baris penekanan |
 |---|---|---|---|
-| Compositor berbeda | `Blocked` | `niri is not the running compositor` | Switch image in **"RakuOS system management"**. |
+| Compositor berbeda | `Blocked` | `niri is not the running compositor.` | **niri is running.** Switch image in "RakuOS system management". |
 | Compositor tidak terdeteksi | `Blocked` | alasannya | Nothing was changed. |
 | Shell sudah hidup | `Already running` | `Noctalia is already running.` | Nothing to switch to. |
 | Shell belum terpasang | `Not installed` | `Caelestia Shell is not installed.` | Packages come from the **RakuOS** image. |
@@ -158,17 +158,22 @@ compositor sekarang.
   terlihat rusak.
 - Banner juga muncul di halaman yang benar-benar kosong, di atas placeholder.
 
-Perbedaan isi kedua halaman:
+Hanya ada satu halaman, jadi tabel ini yang tersisa dari perbandingan antar
+compositor. Niri pernah jadi kolom kedua dan sudah dihapus.
 
-| Shell | hyprland | niri |
+| Shell | hyprland | catatan |
 |---|---|---|
-| Noctalia | ya | ya |
-| DankMaterialShell | ya | ya |
-| Ambxst | ya | ya |
-| Caelestia Shell | ya | **tidak** |
+| Noctalia | ya | di base image |
+| DankMaterialShell | ya | satu-satunya yang perlu diinstal |
+| Ambxst | ya | ditolak: tidak ada repository |
+| Caelestia Shell | ya | ditolak: tidak ada repository |
 
-Caelestia tidak ada di Niri karena upstream hanya menyediakan shell Hyprland,
-dan versi Niri yang ada cuma fork komunitas.
+Caelestia dan Ambxst **tidak punya `skel/`** dan itu disengaja: keduanya tidak
+ada di repository mana pun, jadi dialog menolak mereka di `Not installed` —sebelum backup diambil, bukan sesudahnya. Kalau skel-less diizinkan hanya
+pada shell yang memang tidak bisa diinstal, itu yang diuji
+`a_skel_is_missing_only_where_the_shell_cannot_be_installed`. Niri melanggar
+aturan itu karena punya shell yang bisa diinstal, dan itu sebabnya ia dihapus
+bukan dibiarkan dengan skel kosong.
 
 ## Panel log
 

@@ -19,17 +19,16 @@
 //! program reads.
 //!
 //! The split is not tidiness for its own sake. DMS's install plan is two stages
-//! and seven packages, identical on Hyprland and on Niri; Noctalia's package and
-//! binary are the same on both. Written per compositor, each of those was a
-//! second copy to keep in step, and the two compositors disagreeing about which
+//! and seven packages, the same wherever DMS runs; Noctalia's package and binary
+//! are the same everywhere too. Written per compositor, each of those was a
+//! second copy to keep in step, and two compositors disagreeing about which
 //! package provides a shell is exactly the kind of drift that only shows up as a
 //! failed switch. Because [`Port`] has no `id`, no `upstream` and no
 //! `install_plan` field, that disagreement is not expressible.
 //!
 //! Which shells exist for a given compositor is still not decided here: those
-//! registries live under `compositor::hyprland::shells` and
-//! `compositor::niri::shells`, because the same shell may not exist for every
-//! compositor.
+//! registries live under `compositor::<id>::shells`, because the same shell may
+//! not exist for every compositor. Hyprland is the only one registered today.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -44,6 +43,10 @@ pub enum StartMechanism {
     /// Niri's `spawn-at-startup` in `config.kdl`. Kept apart from `Autostart`
     /// because the backend has to write a different syntax into a different
     /// file, and Niri waits for the command to return before continuing.
+    ///
+    /// Nothing uses this today. Niri is the only compositor that needs it and it
+    /// is no longer registered, so the variant is here for that project rather
+    /// than deleted — see `compositor::niri`.
     SpawnAtStartup,
     /// Launched by a systemd user unit.
     SystemdUserUnit,

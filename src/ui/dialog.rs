@@ -440,16 +440,30 @@ mod tests {
         compositor_with_id("hyprland")
     }
 
-    fn niri() -> &'static dyn Compositor {
-        compositor_with_id("niri")
+    /// A page that is not the one on screen.
+    ///
+    /// Hyprland is the only registered compositor, so in the running app there is
+    /// no such page and the cross-compositor refusal cannot be reached. The rule
+    /// still has to hold for whoever registers a second compositor, so it is
+    /// tested against one that exists only in the test build.
+    fn other() -> &'static dyn Compositor {
+        &crate::compositor::fake::FAKE
     }
 
-    fn compositor_with(
-        detection: &crate::compositor::Detection,
-        id: &str,
-    ) -> &'static dyn Compositor {
-        let _ = detection;
-        compositor_with_id(id)
+    /// A detection naming a compositor that is not registered.
+    ///
+    /// `detect_with` only ever names a registered compositor, so "some other
+    /// compositor is the running one" cannot be produced from an environment at
+    /// all. It is built by hand, because that is the direction the guard has to
+    /// hold in as well: the page you are looking at is the running one, and the
+    /// shell you clicked belongs to somewhere else entirely.
+    fn detection_naming(id: &'static str) -> crate::compositor::Detection {
+        crate::compositor::Detection {
+            wayland: true,
+            runtime_dir: None,
+            current: Some(id),
+            statuses: Vec::new(),
+        }
     }
 
     fn compositor_with_id(id: &str) -> &'static dyn Compositor {
@@ -473,11 +487,11 @@ mod tests {
     #[test]
     fn click_on_a_different_compositor_is_refused_outright() {
         let detection = crate::compositor::detect_with(&hyprland_session());
-        let action = decide(&detection, niri(), &INSTALLED_IDLE, ready());
+        let action = decide(&detection, other(), &INSTALLED_IDLE, ready());
         assert_eq!(
             action,
             Action::RefuseCrossCompositor {
-                target: "niri",
+                target: "fake",
                 current: "hyprland"
             }
         );
@@ -488,7 +502,7 @@ mod tests {
         // A shell that is not even installed, clicked on the wrong compositor,
         // must still be refused for the compositor reason.
         let detection = crate::compositor::detect_with(&hyprland_session());
-        let action = decide(&detection, niri(), &NOT_INSTALLED, absent());
+        let action = decide(&detection, other(), &NOT_INSTALLED, absent());
         assert!(matches!(action, Action::RefuseCrossCompositor { .. }));
     }
 
@@ -588,7 +602,7 @@ mod tests {
             decide(&detection, hyprland(), &INSTALLED_IDLE, ready()),
             decide(&detection, hyprland(), &NOT_INSTALLED, absent()),
             decide(&detection, hyprland(), &ALREADY_RUNNING, busy()),
-            decide(&detection, niri(), &INSTALLED_IDLE, ready()),
+            decide(&detection, other(), &INSTALLED_IDLE, ready()),
         ];
         let confirmations = outcomes
             .iter()
@@ -607,23 +621,6 @@ mod tests {
         if let Some(current) = detection.current {
             assert_eq!(current, "hyprland");
         }
-    }
-
-    /// A Niri session must block the Hyprland page in exactly the same way a
-    /// Hyprland session blocks the Niri page. The guard compares ids, so this
-    /// is meant to hold without any extra code; these tests are here so that if
-    /// someone ever hardcodes a direction, it fails.
-    fn niri_session() -> HashMap<String, String> {
-        let socket = std::env::temp_dir().join("rsp-fake-niri.sock");
-        let _ = std::os::unix::net::UnixListener::bind(&socket);
-        let mut env = HashMap::new();
-        env.insert("WAYLAND_DISPLAY".to_string(), "wayland-1".to_string());
-        env.insert("XDG_RUNTIME_DIR".to_string(), "/run/user/1000".to_string());
-        env.insert(
-            "NIRI_SOCKET".to_string(),
-            socket.to_string_lossy().to_string(),
-        );
-        env
     }
 
     /// Mirrors `Selection::guard_reason`, which needs a window. The wording is
@@ -645,82 +642,91 @@ mod tests {
 
     #[test]
     fn the_guard_works_in_both_directions() {
+        // Whichever page you are on, a card belonging to a compositor that is not
+        // the running one is refused. The guard compares ids, so this is meant to
+        // hold without any extra code; these tests are here so that if someone ever
+        // hardcodes a direction, it fails.
         let hyprland_up = crate::compositor::detect_with(&hyprland_session());
-        let niri_up = crate::compositor::detect_with(&niri_session());
         assert_eq!(hyprland_up.current, Some("hyprland"));
-        assert_eq!(niri_up.current, Some("niri"));
 
-        // Hyprland running: the Niri page is blocked.
+        // Hyprland running: the other page is blocked.
         assert_eq!(
-            decide(&hyprland_up, niri(), &INSTALLED_IDLE, ready()),
+            decide(&hyprland_up, other(), &INSTALLED_IDLE, ready()),
             Action::RefuseCrossCompositor {
-                target: "niri",
+                target: "fake",
                 current: "hyprland"
             }
         );
 
-        // Niri running: the Hyprland page is blocked, with the ids swapped.
+        // Something else running: the Hyprland page is blocked, ids swapped.
         assert_eq!(
-            decide(&niri_up, hyprland(), &INSTALLED_IDLE, ready()),
+            decide(
+                &detection_naming("fake"),
+                hyprland(),
+                &INSTALLED_IDLE,
+                ready()
+            ),
             Action::RefuseCrossCompositor {
                 target: "hyprland",
-                current: "niri"
+                current: "fake"
             }
         );
     }
 
     #[test]
     fn the_running_compositor_is_the_only_one_that_offers_a_switch() {
-        for (env, running, blocked) in [
-            (hyprland_session(), "hyprland", "niri"),
-            (niri_session(), "niri", "hyprland"),
-        ] {
-            let detection = crate::compositor::detect_with(&env);
-            let running_page = compositor_with(&detection, running);
-            let blocked_page = compositor_with(&detection, blocked);
+        let hyprland_up = crate::compositor::detect_with(&hyprland_session());
+        let fake_up = detection_naming("fake");
 
-            assert!(
-                matches!(
-                    decide(&detection, running_page, &INSTALLED_IDLE, ready()),
-                    Action::ConfirmSwitch { .. }
-                ),
-                "{running} page should offer a switch when {running} is running"
-            );
-            assert!(
-                matches!(
-                    decide(&detection, blocked_page, &INSTALLED_IDLE, ready()),
-                    Action::RefuseCrossCompositor { .. }
-                ),
-                "{blocked} page should be blocked when {running} is running"
-            );
-        }
+        assert!(matches!(
+            decide(&hyprland_up, hyprland(), &INSTALLED_IDLE, ready()),
+            Action::ConfirmSwitch { .. }
+        ));
+        assert!(matches!(
+            decide(&hyprland_up, other(), &INSTALLED_IDLE, ready()),
+            Action::RefuseCrossCompositor { .. }
+        ));
+        // Nothing of the other compositor may be clickable while it is the one
+        // on screen, even from a Hyprland tab.
+        assert!(matches!(
+            decide(&fake_up, hyprland(), &INSTALLED_IDLE, ready()),
+            Action::RefuseCrossCompositor { .. }
+        ));
     }
 
     #[test]
     fn the_block_reason_names_both_compositors_in_the_right_order() {
-        let detection = crate::compositor::detect_with(&niri_session());
+        let detection = detection_naming("fake");
         let reason = detection_reason(&detection, hyprland());
-        let text = reason.expect("hyprland must be refused while niri runs");
+        let text = reason.expect("hyprland must be refused while another compositor runs");
         assert!(text.contains("hyprland"), "{text}");
-        assert!(text.contains("niri"), "{text}");
+        assert!(text.contains("fake"), "{text}");
         // The page being viewed must be named first, the running one second.
         assert!(
-            text.find("hyprland") < text.find("niri"),
+            text.find("hyprland") < text.find("fake"),
             "the wrong order reads as if the other compositor were running: {text}"
         );
     }
 
     #[test]
     fn the_app_opens_on_the_running_compositors_tab() {
-        // Otherwise a Niri user lands on the blocked Hyprland page.
         assert_eq!(
             crate::compositor::default_id(&crate::compositor::detect_with(&hyprland_session())),
             "hyprland"
         );
-        assert_eq!(
-            crate::compositor::default_id(&crate::compositor::detect_with(&niri_session())),
-            "niri"
-        );
+        // A session the registry cannot name opens on Hyprland, which is the only
+        // page there is — and every click on it is refused, because the running
+        // compositor was never identified. Falling back to a tab rather than
+        // refusing to open is deliberate; refusing every click on it is what keeps
+        // the fallback honest.
+        let unrecognised =
+            crate::compositor::detect_with(&env(&[("WAYLAND_DISPLAY", "wayland-1")]));
+        assert_eq!(unrecognised.current, None);
+        assert_eq!(crate::compositor::default_id(&unrecognised), "hyprland");
+        assert!(matches!(
+            decide(&unrecognised, hyprland(), &INSTALLED_IDLE, ready()),
+            Action::RefuseUndetected { .. }
+        ));
         // With nothing detected some tab still has to be selected.
         let unknown = crate::compositor::detect_with(&env(&[]));
         assert_eq!(
@@ -752,12 +758,16 @@ mod tests {
         // Whatever the ending, a refusal has nothing running that a mark could
         // truthfully mean, so it must never leave one behind.
         let detection = crate::compositor::detect_with(&hyprland_session());
-        let niri_up = crate::compositor::detect_with(&niri_session());
         let refusals = [
             decide(&detection, hyprland(), &NOT_INSTALLED, absent()),
             decide(&detection, hyprland(), &ALREADY_RUNNING, busy()),
-            decide(&detection, niri(), &INSTALLED_IDLE, ready()),
-            decide(&niri_up, hyprland(), &INSTALLED_IDLE, ready()),
+            decide(&detection, other(), &INSTALLED_IDLE, ready()),
+            decide(
+                &detection_naming("fake"),
+                hyprland(),
+                &INSTALLED_IDLE,
+                ready(),
+            ),
             decide(
                 &crate::compositor::detect_with(&env(&[])),
                 hyprland(),

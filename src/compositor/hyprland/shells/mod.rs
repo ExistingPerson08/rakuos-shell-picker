@@ -10,8 +10,9 @@
 //! shells/dms.rs  ←  this file's sibling: DMS on Hyprland
 //! ```
 //!
-//! Niri has its own registry with its own answers to the same questions, and neither
-//! folder imports the other.
+//! Every compositor has its own registry with its own answers to the same questions,
+//! and no folder imports another. Hyprland is the only one registered today; see
+//! `compositor::niri` for the shape of the next one.
 //!
 //! Why the split is per shell rather than per step: the steps are not the same for
 //! any two shells. Noctalia is in the base image and started from a Lua autostart,

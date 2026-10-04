@@ -192,7 +192,7 @@ impl Selection {
         dialog::present(&window, action);
     }
 
-    /// The niri page and any other non-running compositor: cards are inert, but
+    /// A compositor that is not the running one: cards are inert, but
     /// they still explain themselves instead of looking broken.
     pub fn guard_reason(&self, compositor: &'static dyn Compositor) -> Option<String> {
         if let Some(current) = self.detection.current {

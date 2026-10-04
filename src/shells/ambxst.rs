@@ -8,9 +8,10 @@
 //! `docs/SAFETY.md`, rule 4. That refusal is a missing fact rather than a policy:
 //! once the config location is established, it belongs in the [`Port`].
 //!
-//! Upstream note, for whoever fills that in: Ambxst generates its Niri config into
-//! `~/.local/share/ambxst/niri.kdl` and pulls it in with an include block, so there
-//! may be no hand-written config directory to point at even once Niri is supported.
+//! Upstream note, for whoever adds a Niri port: Ambxst generates its Niri config
+//! into `~/.local/share/ambxst/niri.kdl` and pulls it in with an include block, so
+//! there may be no hand-written config directory to point at. It would not be the
+//! Hyprland port with a different path.
 
 use crate::shell::Identity;
 

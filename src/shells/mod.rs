@@ -9,7 +9,7 @@
 //! ```text
 //! shells/dms.rs                     the package, the install plan, the logo
 //! compositor/hyprland/shells/dms.rs  where its config is, how it starts there
-//! compositor/niri/shells/dms.rs      the same, for Niri
+//! compositor/<id>/shells/dms.rs      the same, for another compositor
 //! ```
 //!
 //! There is deliberately no list of shells here. Which shells a compositor offers
