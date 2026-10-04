@@ -115,6 +115,22 @@ pub fn running_shell() -> Option<&'static Shell> {
         .find(|s| s.running())
 }
 
+/// Whether the clicked card may stay marked once the dialog is gone.
+///
+/// Only a confirmed switch keeps the mark, because the mark means "a switch to
+/// this is under way". Every other ending takes it back, including a cancelled
+/// dialog.
+///
+/// This is not cosmetic. The mark is a `ToggleButton` left active, and the card
+/// handler deliberately ignores a toggle *off* — that is what stops one click
+/// from running two switches. So a card left active swallows the next click:
+/// clicking it turns it off and nothing happens, and only the click after that
+/// reaches the dialog again. A user who cancelled once has to click twice for
+/// every later attempt, with nothing on screen to explain why.
+pub fn keeps_mark(action: &Action, confirmed: bool) -> bool {
+    matches!(action, Action::ConfirmSwitch { .. }) && confirmed
+}
+
 // ---------------------------------------------------------------------------
 // GTK rendering
 // ---------------------------------------------------------------------------
@@ -155,12 +171,22 @@ fn alert(
 }
 
 /// Compositor mismatch. Not a yes/no: there is nothing to agree to.
-pub fn refuse_cross_compositor(parent: &ApplicationWindow, target: &str, _current: &str) {
+///
+/// `current` is named because being told what is blocked without being told what
+/// is running leaves the user with nothing to act on: the card they wanted is
+/// unavailable and the answer does not say what to use instead. It was passed in
+/// and dropped, while the equivalent message on the blocked page names both.
+pub fn refuse_cross_compositor(parent: &ApplicationWindow, target: &str, current: &str) {
     alert(
         parent,
         "Blocked",
-        &format!("{target} is not the running compositor"),
-        Some("Switch image in <b>\"RakuOS system management\"</b>."),
+        &format!("{target} is not the running compositor."),
+        // Markup, so the name has to come from somewhere we control. It does:
+        // a detection id is always one of ours, never anything read from the
+        // environment. The body above stays plain text.
+        Some(&format!(
+            "<b>{current}</b> is running. Switch image in \"RakuOS system management\"."
+        )),
     );
 }
 
@@ -194,15 +220,31 @@ pub fn not_installed(parent: &ApplicationWindow, shell: &str) {
     );
 }
 
+/// The response that starts a switch. Every other response is a dismissal.
+pub const SWITCH: &str = "switch";
+
+/// The response for Cancel, for Escape and for the window's close button.
+///
+/// Named in all three places on purpose. `set_close_response` is what makes
+/// Escape and the title-bar close arrive here as a dismissal rather than as
+/// silence, so a dismissed dialog takes the card's mark back exactly like an
+/// explicit Cancel does.
+pub const CANCEL: &str = "cancel";
+
 /// The real switch: an explicit yes, and only a yes.
 ///
 /// Cancel is the default response, so pressing Enter does the safe thing.
+///
+/// `on_response` is told whether the user said yes. It fires for every ending,
+/// including the ones where nothing happens, because the caller has already
+/// marked the clicked card by then and has to be able to take that mark back.
+/// A callback that could only report success would leave that to nobody.
 pub fn confirm_switch(
     parent: &ApplicationWindow,
     from: Option<&str>,
     to: &str,
     install: bool,
-    on_confirm: impl Fn() + 'static,
+    on_response: impl Fn(bool) + 'static,
 ) {
     let body = match from {
         Some(name) => format!("{name} is running now."),
@@ -218,16 +260,14 @@ pub fn confirm_switch(
         "Configuration is backed up and never deleted.".to_string()
     };
     dialog.set_extra_child(Some(&markup_label(&extra)));
-    dialog.add_response("cancel", "Cancel");
-    dialog.add_response("switch", &format!("Switch to {to}"));
-    dialog.set_response_appearance("switch", ResponseAppearance::Suggested);
-    dialog.set_default_response(Some("cancel"));
-    dialog.set_close_response("cancel");
+    dialog.add_response(CANCEL, "Cancel");
+    dialog.add_response(SWITCH, &format!("Switch to {to}"));
+    dialog.set_response_appearance(SWITCH, ResponseAppearance::Suggested);
+    dialog.set_default_response(Some(CANCEL));
+    dialog.set_close_response(CANCEL);
     dialog.connect_response(None, move |dialog, response| {
         dialog.close();
-        if response == "switch" {
-            on_confirm();
-        }
+        on_response(response == SWITCH);
     });
     dialog.present(Some(parent));
 }
@@ -687,5 +727,63 @@ mod tests {
             crate::compositor::default_id(&unknown),
             crate::compositor::all()[0].id()
         );
+    }
+
+    #[test]
+    fn a_cancelled_dialog_gives_the_card_back() {
+        // The bug this guards: the mark was drawn when the dialog opened and
+        // nothing took it back when the dialog closed without a switch. The card
+        // stayed an active ToggleButton, and since the handler ignores a toggle
+        // off, the next click on that card did nothing at all.
+        let detection = crate::compositor::detect_with(&hyprland_session());
+        let confirm = decide(&detection, hyprland(), &INSTALLED_IDLE, ready());
+        assert!(
+            !keeps_mark(&confirm, false),
+            "a dialog the user dismissed must not leave a card marked"
+        );
+        assert!(
+            keeps_mark(&confirm, true),
+            "a confirmed switch keeps the mark for the duration of the operation"
+        );
+    }
+
+    #[test]
+    fn no_refusal_ever_keeps_a_mark() {
+        // Whatever the ending, a refusal has nothing running that a mark could
+        // truthfully mean, so it must never leave one behind.
+        let detection = crate::compositor::detect_with(&hyprland_session());
+        let niri_up = crate::compositor::detect_with(&niri_session());
+        let refusals = [
+            decide(&detection, hyprland(), &NOT_INSTALLED, absent()),
+            decide(&detection, hyprland(), &ALREADY_RUNNING, busy()),
+            decide(&detection, niri(), &INSTALLED_IDLE, ready()),
+            decide(&niri_up, hyprland(), &INSTALLED_IDLE, ready()),
+            decide(
+                &crate::compositor::detect_with(&env(&[])),
+                hyprland(),
+                &INSTALLED_IDLE,
+                ready(),
+            ),
+        ];
+        for action in &refusals {
+            assert!(
+                !matches!(action, Action::ConfirmSwitch { .. }),
+                "expected a refusal in this list, got {action:?}"
+            );
+            assert!(
+                !keeps_mark(action, true),
+                "{action:?} must not keep a mark even if a dialog said yes"
+            );
+        }
+    }
+
+    #[test]
+    fn the_response_strings_the_dialog_registers_match_what_the_gate_expects() {
+        // confirm_switch reports `response == SWITCH`. Anything that renames a
+        // response without renaming the constant turns every confirmation into a
+        // silent dismissal, so the pairing is pinned here.
+        assert_ne!(SWITCH, CANCEL);
+        assert_eq!(SWITCH, "switch");
+        assert_eq!(CANCEL, "cancel");
     }
 }

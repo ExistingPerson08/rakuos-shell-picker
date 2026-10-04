@@ -155,27 +155,40 @@ impl Selection {
         };
         let action = dialog::decide(&self.detection, compositor, shell, state);
 
+        // Resolved before anything is marked, so the one path that gives up
+        // early cannot strand a mark it has already drawn.
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+
         if let dialog::Action::ConfirmSwitch { from, to, install } = &action {
             self.highlight(shell.id);
-            let Some(window) = self.window.upgrade() else {
-                return;
-            };
             let current = self.detection.current.map(str::to_string);
             let from = from.clone();
             let to = *to;
-            // The callback outlives this call, so it takes its own copy of the
-            // shared state rather than a borrow of it.
+            let install = *install;
+            // The callbacks outlive this call, so they take their own copy of
+            // the shared state rather than a borrow of it.
             let owned = shared.clone();
-            dialog::confirm_switch(&window, from.as_deref(), to, *install, move || {
-                begin(&owned, compositor, current.clone(), shell);
+            let marks = shared.clone();
+            let decided = action.clone();
+            dialog::confirm_switch(&window, from.as_deref(), to, install, move |confirmed| {
+                // Every ending arrives here, so this is the only place that
+                // can take the mark back on the ones where no switch starts.
+                // Leaving it to the confirm arm is what used to strand it:
+                // the mark outlived a cancelled dialog, and a card left
+                // active swallows the next click on it.
+                if !dialog::keeps_mark(&decided, confirmed) {
+                    marks.borrow_mut().clear_highlight();
+                }
+                if confirmed {
+                    begin(&owned, compositor, current.clone(), shell);
+                }
             });
             return;
         }
 
         self.clear_highlight();
-        let Some(window) = self.window.upgrade() else {
-            return;
-        };
         dialog::present(&window, action);
     }
 
