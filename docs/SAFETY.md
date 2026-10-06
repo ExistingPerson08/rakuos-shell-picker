@@ -183,14 +183,18 @@ Urutan satu-satunya yang boleh dipakai:
  2. preflight : environment + start mechanism siap (binary, unit systemd, atau
                 file autostart benar-benar ada)
  3. BACKUP    : delapan path di bawah, disalin ke
-                backups/<waktu>-<compositor>-<shell>/ lalu DIBACA ULANG untuk
-                dicocokkan dengan manifest
+                backups/<tanggal>-<compositor>-<shell>/ lalu DIBACA ULANG untuk
+                dicocokkan dengan manifest. Namanya tanggal saja, jadi satu hari
+                satu direktori: switch kedua pada hari yang sama menggantikan
+                yang pertama, dan hanya setelah yang baru terbukti utuh
                                             <- gagal di sini, switch dibatalkan
-4. catat state "sedang berganti"           -> supaya sesi bisa dipulihkan
+ 4. catat state "sedang berganti"           -> supaya sesi bisa dipulihkan
   5. INSTALL   : satu privileged transaction per tahap, pkexec rum install -y
                  <paket>, hanya untuk paket yang memang belum ada
                                              <- gagal di sini, switch dibatalkan
-  6. terapkan skel : config milik shell diganti penuh; hypr hanya lewat shim
+  6. terapkan skel : config shell target dan ~/.config/hypr diganti penuh dari
+                     skel; file yang diganti disimpan dulu sebagai .pre-*,
+                     dibuang lagi setelah langkah 9 berhasil
   7. stop      : shell lama diberi SIGTERM -> ditunggu -> batas waktu -> kill -9
                  hanya sebagai upaya terakhir
   8. start     : shell baru, sesuai StartMechanism-nya
@@ -198,7 +202,22 @@ Urutan satu-satunya yang boleh dipakai:
  10. state     : tulis active/previous
  11. ROLLBACK  : kalau langkah 8/9 gagal, start lagi shell lama dan kembalikan
                  config dari backup
+ 12. bersih    : .pre-* yang direproduksi backup dibuang; lalu config dan state
+                 shell keluar dihapus — hanya yang backup switch ini gambarkan
+                 byte untuk byte, sisanya disimpan dan alasannya dilaporkan
+                 <- gagal di sini TIDAK membatalkan; switch sudah sukses
+ 13. hapus paket: pkexec rum remove -y, hanya paket milik shell keluar, hanya
+                 kalau shell itu punya uninstall_plan
+                 <- gagal di sini juga tidak membatalkan
 ```
+
+**Langkah 12 dan 13 tidak pernah menggagalkan switch, dan itu disengaja.**
+Keduanya berjalan setelah verify, artinya tidak ada jalur rollback yang tersisa
+— membatalkan berarti membongkar konfigurasi yang sudah terbukti jalan. Yang
+bisa terjadi hanya mesin lebih kotor dari yang diminta, dan itu dilaporkan
+begitu adanya. Pilihan berlawanan juga salah: menaruh bersih atau uninstall
+sebelum verify akan membuat kegagalan verify merusak shell yang belum sempat
+diganti.
 
 **Tidak ada langkah "cek dependency" terpisah, dan itu disengaja.** `rum install`
 memang sudah menyelesaikan transaksi itu sendiri: paket yang sudah ada dilewati,
@@ -233,11 +252,13 @@ Delapan path, relatif terhadap `$HOME`:
 ```
 .config/gtk-3.0            bersama     milik sesi, bukan milik shell
 .config/gtk-4.0            bersama
-.config/hypr               bersama     hanya lewat fragment, tidak pernah utuh
+.config/hypr               compositor  diganti penuh dari skel shell target
 .config/qt5ct              bersama
 .config/qt6ct              bersama
 .config/noctalia           shell       keluar
 .local/state/noctalia      shell       keluar
+.local/share/applications/ shell       launcher Noctalia, ditimpa skel shell
+  dev.noctalia.Noctalia.desktop        yang menggantikan (dms)
 ```
 
 `~/.local/state/noctalia` ikut karena sebagian besar setup Noctalia ada di
@@ -245,14 +266,27 @@ sana: 389 file, bukan config ringan. Path yang tidak ada dicatat sebagai
 `absent`, bukan dianggap gagal, supaya saat restore "tidak pernah ada" bisa
 dibedakan dari "hilang".
 
+Yang bertanda `shell` di kolom ketiga — `config_dir` dan `state_dir` — persis
+daftar yang dibersihkan setelah switch (langkah 12). Satu deklarasi, tiga
+kegunaan: di-backup, dihapus saat keluar, dibaca balik saat kembali. Untuk DMS
+keduanya `.config/DankMaterialShell` dan `.local/state/DankMaterialShell`,
+sehingga jumlahnya tetap delapan.
+
+Launcher tidak dibersihkan: kedua shell memasangnya dari skel masing-masing,
+jadi shell berikutnya sudah menimpanya sendiri.
+
 ### Apa yang boleh ditimpa, dan apa yang tidak
 
 - **Config milik shell itu sendiri boleh diganti penuh** setelah backup
   terverifikasi. `~/.config/<shell>` dan `~/.local/state/<shell>` milik shell
   tersebut, jadi menggantinya bukan merusak milik user.
-- **`~/.config/hypr` tidak pernah diganti penuh.** Isinya 45 file dan lebih dari
-  seribu baris config yang bukan tentang shell sama sekali. Picker hanya
-  menulis fragment miliknya sendiri di sana.
+- **`~/.config/hypr` juga diganti penuh, dari skel shell target.** Skel tiap
+  shell membawa konfigurasi Hyprland miliknya sendiri yang lengkap — termasuk
+  `config/autostart.lua` yang menjalankan shell itu. Tanpa penggantian penuh,
+  config lama tetap akan menjalankan shell lama, logout membawa user kembali ke
+  tempat semula, dan pesan suksesnya bohong. Konsekuensinya: backup
+  `~/.config/hypr` bukan pelengkap. Setelah switch, salinan di backup adalah
+  satu-satunya tempat config Hyprland milik user masih ada.
 - **gtk/qt ikut diganti** karena menentukan tampilan seluruh program, bukan
   cuma shell. Efeknya lebih luas daripada shell, dan justru karena itu semua
   ikut di-backup dan tetap dibiarkan ada file aslinya untuk restore manual.
@@ -263,8 +297,14 @@ Aturan penting dari urutan itu:
 - **Kalau backup gagal, switch tidak jalan.** Ini bukan peringatan, ini syarat.
 - **Backup yang tidak bisa dibaca ulang dianggap tidak ada.** Switch tidak
   pernah lanjut dengan anggapan ada jalan pulang.
-- **Tidak ada penghapusan backup secara otomatis.** Pembersihan hanya kalau
-  user sendiri yang memintanya, dan jumlah backup ditampilkan dulu.
+- **Backup tidak pernah dihapus, tapi juga tidak pernah menumpuk.** Namanya
+  tanggal, jadi satu hari menghasilkan satu direktori — bukan satu per klik.
+  Switch kedua pada hari yang sama menggantikan yang pertama, dan penggantian
+  hanya boleh terjadi setelah salinan yang baru selesai dibaca ulang cocok
+  dengan manifestnya. Yang lama dipindah ke nama tersembunyi dulu dan dihapus
+  hanya setelah yang baru berada di tempatnya; kalau penggantian gagal di
+  tengah, yang lama dikembalikan. Tidak pernah ada saat tidak ada backup.
+  Menghapus backup tetap hanya kalau user sendiri yang memintanya.
 
 ## Boleh dan tidak boleh dilakukan picker
 
@@ -275,57 +315,80 @@ syaratnya terpenuhi". Yang tidak punya syarat ada di tabel kedua.
 |---|---|
 | Memasang paket yang belum ada, lewat `pkexec` | Bukan `rum` yang dipanggil langsung. `pkexec` yang minta otorisasi ke polkit agent sistem, jadi password tidak pernah masuk ke proses picker. Kegagalan instalasi membatalkan switch, bukan melanjutkan setengah jalan. |
 | Mengganti config milik shell itu sendiri | Hanya setelah backup tersimpan dan bisa dibaca ulang. Ganti, bukan menimpa buta: config lama ada di backup dan dikembalikan lewat copy-paste manual. |
-| Mematikan autostart shell sebelumnya | Supaya tidak ada dua shell hidup. Paketnya dibiarkan supaya switch-back selalu mungkin. |
+| Mengganti `~/.config/hypr` | Selalu, tapi seluruh direktori sekaligus dari skel shell target, dan hanya setelah backup `~/.config/hypr` terbukti utuh. Tidak pernah menulis sebagian: config yang setengah berisi membuat Hyprland gagal start. |
+| Mematikan autostart shell sebelumnya | Supaya tidak ada dua shell hidup. Langkah ini masih bisa di-rollback; file dan paket shell lama baru dibuang setelah verify, jauh di belakangnya. |
+| Menghapus config dan state shell yang ditinggalkan | Setelah langkah 9 (verify) berhasil, **dan** hanya kalau backup untuk switch ini mereproduksi path itu byte untuk byte. Backup yang tidak cocok lagi berarti shell sempat menulis sesuatu di antaranya — file disimpan, alasannya dilaporkan. Tidak pernah di depan backup. |
+| Menghapus paket shell yang ditinggalkan | Lewat `pkexec rum remove -y`, hanya paket milik shell itu sendiri, dan hanya setelah shell baru terbukti hidup. Kegagalan tidak membatalkan switch yang sudah sukses: yang terjadi mesin lebih kotor dari yang diminta, bukan sesi yang rusak. |
 
 | Tidak | Alasannya |
 |---|---|
-| Uninstall di dalam alur switch | Shell yang sudah di-uninstall tidak bisa di-switch-back. Uninstall jadi tindakan terpisah dengan tombol dan konfirmasi sendiri, bukan efek samping dari switch. |
-| Mengganti config compositor | `~/.config/hypr/` milik user dan tidak pernah ditulis ulang. Picker hanya menulis ke file miliknya sendiri. |
-| `rm -rf` config tanpa backup yang terbukti tersimpan | Backup yang gagal membatalkan switch. Tidak ada kondisi di mana config hilang dan switch tetap jalan. |
+| Menulis sebagian dari `~/.config/hypr` | Filenya saling merujuk. Menyisipkan satu file ke direktori milik shell lain meninggalkan config yang setengah milik dua shell, dan gagalnya baru terasa saat Hyprland sudah start. Diganti penuh atau tidak disentuh. |
+| `rm -rf` config tanpa backup yang terbukti tersimpan | Backup yang gagal membatalkan switch. Tidak ada kondisi di mana config hilang dan switch tetap jalan. Ini berlaku sama untuk langkah bersih: ukurannya bukan "backup ada", tapi "backup ini menggambarkan file ini". |
+| Menghapus runtime bersama dari dalam switch | `quickshell-git` dipakai shell lain juga. Yang keluar hanya paket milik shell yang pergi; sisa yang jadi yatim adalah kandidat `rum autoremove`, tetap pilihan terpisah. |
 
-### Tombol uninstall
+### Membersihkan shell yang ditinggalkan
 
-Terpisah dari switch, di card masing-masing shell, dengan konfirmasi sendiri.
-Salah klik berarti kehilangan shell, dan itu tidak bisa di-rollback.
+Tiga hal, semuanya setelah langkah 9 berhasil, dan semuanya dilaporkan bukan
+digagalkan — switch yang sudah sampai di sini sudah sukses, jadi berantakan
+bukan alasan untuk membongkarnya kembali:
 
-Untuk Noctalia tombolnya mati. Dia ada di base image yang read-only, jadi
-`rum remove` akan menolaknya; tombol yang selalu gagal lebih buruk daripada
-tidak ada.
+1. **`.pre-*`** yang tadi disingkirkan, dibuang (`discard_asides`). Hanya yang
+   reproduksinya cocok dengan backup; yang tidak, disimpan.
+2. **config dan state shell keluar** (`config_dir` + `state_dir`) dihapus.
+   Syaratnya ketat: backup untuk switch ini harus berisi path itu dengan jumlah
+   file dan byte yang sama. Tidak cocok, tidak dihapus. Karena dua field itu
+   juga daftar backup dan daftar pemulihan, tidak ada daftar ketiga yang bisa
+   berbeda — menambah `state_dir` otomatis menambah backup, bersih, dan
+   pemulihan sekaligus.
+3. **paket shell keluar**, kalau shell itu punya `uninstall_plan`, lewat
+   `pkexec rum remove -y`.
 
-`rum remove` tidak uninstall dependency yang masih dipakai paket lain. Sisa
-begitu adalah kandidat `rum autoremove`, dan itu ditawarkan sebagai pilihan
-tersendiri, bukan dijalankan diam-diam.
+`state_dir` ikut dipulihkan dari backup oleh `plan` persis seperti
+`config_dir`. Tanpa itu, Noctalia akan kehilangan 389 dari 445 file miliknya
+begitu langkah 2 dijalankan: tersimpan di backup, tidak pernah dibaca balik,
+dan selama ini selamat hanya karena tidak ada yang menghapusnya.
 
-## Skel: mana yang diganti, mana yang dipecah
+Untuk Noctalia `uninstall_plan`-nya `None`. Dia ada di base image yang
+read-only, `rum remove` akan menolaknya, dan rencana yang selalu gagal lebih
+buruk daripada tidak ada. Config dan statenya tetap dibersihkan — itu file
+user, bukan file image.
 
-Bentuk skel tidak seragam, dan tidak bisa seragam karena ada dua pemilik
-config yang berbeda:
+Switch-back tetap mungkin setelah bersih: `install_plan` memasang paketnya
+kembali, dan `plan` membaca config serta state dari backup yang sama.
 
-| Dipasang penuh | Dipasang sebagai fragment |
+## Skel: apa yang diganti penuh
+
+Skel tiap shell membawa konfigurasi lengkap, bukan potongan. Semuanya dipasang
+dengan cara yang sama — direktori lama disimpan dulu sebagai `.pre-*`, yang baru
+dimasukkan, dan `.pre-*` dibuang lagi setelah shell baru terbukti hidup:
+
+| Dipasang penuh | Isinya |
 |---|---|
-| `~/.config/<shell>/` | `~/.config/hypr/` |
-| `~/.config/gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct` | — |
+| `~/.config/<shell>/` | config milik shell itu sendiri |
+| `~/.config/hypr/` | konfigurasi Hyprland milik shell target, termasuk `config/autostart.lua` yang menjalankannya |
+| `~/.config/gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct` | tampilan, dipilih shell lewat konfigurasinya |
 
-Alasannya, `~/.config/hypr/` adalah milik user. Jejak sebuah shell di sana
-tersebar di beberapa file sekaligus — untuk Noctalia ada di `hyprland.lua`,
-`config/autostart.lua`, `config/binds.lua`, `config/lid.lua`,
-`config/windowrules.lua`, dan `scripts/lock-and-suspend.sh`. Menyalin direktori
-ini secara utuh tidak akan menghapus "jejak noctalia"; ia akan menghapus seluruh
-konfigurasi user, termasuk yang tidak ada hubungannya dengan shell.
+`~/.config/hypr/` bukan pengecualian lagi. Dulu picker menulis satu file sendiri
+ke sana dan membiarkan Lua milik user; sekarang direktorinya diganti utuh,
+karena `config/autostart.lua` di dalamnya adalah yang benar-benar menjalankan
+shell. Config lama akan terus menjalankan shell lama, dan kalau itu dibiarkan,
+logout setelah "sukses" akan membawa user persis kembali ke tempat semula.
 
-Jadi picker hanya menulis file milik sendiri, dan kalau autostart perlu diubah,
-perubahannya dilakukan satu kali lewat file shim yang membaca `state.toml`. Sesudah
-itu, ganti shell tidak pernah menyentuh Lua milik user lagi.
+Yang membuat penggantian itu aman bukan harapan bahwa user tidak punya isi di
+sana, melainkan urutan di depannya: `~/.config/hypr` ikut di-backup pada langkah
+3, dibaca ulang, dan baru diganti pada langkah 6. Setelah switch, salinan di
+backup adalah satu-satunya tempat config Hyprland milik user masih ada — jadi
+backup itu bukan pelengkap, dan menghapusnya berarti menghapus config sendiri.
 
 `uwsm` tidak ikut berperan, dan tidak pernah ada. Rantainya `start-hyprland` ->
 `Hyprland` -> `noctalia`: UWSM menjalankan kompositor lalu turun, tidak ada
 proses uwsm di rantai itu. Yang menjalankan shell adalah baris
-`hl.exec_cmd("noctalia")` di `config/autostart.lua`. `~/.config/uwsm`
-lagi tidak per-desktop sama sekali — bagian per-desktopnya ada di sistem,
-`/usr/share/uwsm/plugins/<desktop>.sh`, yang tidak pernah kita sentuh; bagian
-user-nya satu skrip `env` global yang dipakai bersama semua sesi. Jadi fragmen
-uwsm akan identik untuk setiap kompositor, yaitu bukan urusan ganti shell,
-cuma risiko merusak file milik desktop lain.
+`hl.exec_cmd("noctalia")` di `config/autostart.lua` — ada di skel, diinstal
+utuh bersama direktorinya. `~/.config/uwsm` lagi tidak per-desktop sama sekali —
+bagian per-desktopnya ada di sistem, `/usr/share/uwsm/plugins/<desktop>.sh`,
+yang tidak pernah kita sentuh; bagian user-nya satu skrip `env` global yang
+dipakai bersama semua sesi. Jadi isinya akan identik untuk setiap kompositor,
+yaitu bukan urusan ganti shell, cuma risiko merusak file milik desktop lain.
 
 Bentuk direktori:
 
@@ -398,15 +461,27 @@ pengecualian untuk hal ini.
 # bersihin cache akan ikut menghapus seluruh recovery copy.
 ```
 ~/.local/share/backups/rakuos-shell-picker/
-  20261003-022126-hyprland-noctalia/
+  20261006-hyprland-noctalia/
     manifest.toml          isi tiap path, jumlah file, ukuran, symlink
     home/                  salinan, mirroring path asli relatif terhadap $HOME
-  20261002-190112-hyprland-dms/
+  20261005-hyprland-dms/
     ...
 ```
 
+Namanya `YYYYMMDD-<compositor>-<shell>` — **tanggal saja, tanpa jam**. Suffix
+shell di belakang itu penting dan tidak boleh dilepas: kalau namanya cuma
+tanggal, backup shell kedua pada hari yang sama akan menghapus satu-satunya
+salinan config shell pertama. Satu hari menghasilkan satu direktori per shell
+yang ditinggalkan, jadi switch berulang pada hari yang sama menggantikan yang
+sudah ada, bukan menambah — dan penggantian hanya terjadi setelah salinan yang
+baru selesai dan cocok dengan manifestnya.
+
 Backup bersifat **tambahan**, bukan pengganti: config asli tetap di tempat
 asalnya. Menyalin, bukan memindahkan.
+
+File `.pre-*` yang dibuat saat mengganti config tidak ikut backup, dan dibuang
+begitu shell baru terbukti hidup. Mereka hanya ada untuk rollback yang sudah
+tidak mungkin lagi terjadi pada saat itu.
 
 ## Isi `manifest.toml`
 

@@ -360,7 +360,6 @@ pub fn apply_with(
             rolled_back: stopped.is_ok() && configs_back && old_up,
         };
     }
-
     if let Some(shell) = current {
         progress(&format!(
             "{} is up; {} is stopped",
@@ -368,6 +367,74 @@ pub fn apply_with(
         ));
     } else {
         progress(&format!("{} is up", target.display_name));
+    }
+
+    // The new shell is up, so nothing can roll back to the copies this switch
+    // renamed aside: `restore` only runs from the failure paths above. They are
+    // dropped here rather than left behind, which is what a day of switching
+    // used to do — one generation per attempt, and then the next backup copied
+    // every one of them along with the user's config.
+    let (dropped, held) = discard_asides(&asides, backups_root);
+    if dropped > 0 {
+        progress(&format!(
+            "removed {dropped} of the copies this switch set aside; each is still in {}",
+            backup_root.display()
+        ));
+    }
+    if held > 0 {
+        progress(&format!(
+            "kept {held} of the copies set aside, which no backup holds"
+        ));
+    }
+
+    // The shell just left goes, now that nothing can roll back to it: the new
+    // one is up, and the backup written before the switch is the way home. Both
+    // steps are reported rather than fatal — a switch that has reached here has
+    // succeeded, and a file or a package that would not go away leaves the
+    // machine dirtier than asked, not broken.
+    if let Some(outgoing) = current {
+        let (cleaned, held) = clean(outgoing, target, home, backup_root, progress);
+        if cleaned > 0 {
+            progress(&format!(
+                "cleaned {cleaned} path(s) belonging to {}",
+                outgoing.display_name
+            ));
+        }
+        if held > 0 {
+            progress(&format!("kept {held} path(s) of {}", outgoing.display_name));
+        }
+
+        if let Some(plan) = outgoing.uninstall_plan {
+            progress(&format!("removing the {} packages", outgoing.display_name));
+            match crate::switch::uninstall(plan, progress) {
+                crate::switch::Removed::Finished { stages, .. } => progress(&format!(
+                    "{}'s packages are off the machine ({stages} stage(s))",
+                    outgoing.display_name
+                )),
+                crate::switch::Removed::AlreadyGone { .. } => {
+                    progress("its packages were already gone");
+                }
+                crate::switch::Removed::Dismissed { stage } => progress(&format!(
+                    "stage {stage} was not authorized, so {} stays installed",
+                    outgoing.display_name
+                )),
+                crate::switch::Removed::Failed { stage, status, .. } => {
+                    let line = format!(
+                        "stage {stage} could not remove {}: {status}",
+                        outgoing.display_name
+                    );
+                    crate::logging::warn(&line);
+                    progress(&line);
+                }
+                crate::switch::Removed::Malformed { package } => {
+                    let line = format!(
+                        "the removal plan for {package} names no packages, so nothing was removed"
+                    );
+                    crate::logging::error(&line);
+                    progress(&line);
+                }
+            }
+        }
     }
 
     if !log_out {
@@ -414,36 +481,37 @@ fn plan(
     let mut entries = Vec::new();
 
     if let Some(rel) = target.config_dir {
-        let rel = rel.trim_start_matches("./").to_string();
-        match newest_backup_holding(backups_root, &rel) {
-            Some(root) => {
-                let src = root.join("home").join(&rel);
-                progress(&format!("{rel} comes from the newest backup that holds it"));
-                entries.push(Entry {
-                    rel,
-                    src,
-                    origin: Origin::Backup(root),
-                });
-            }
-            None if skel.join(&rel).is_dir() => {
-                progress(&format!(
-                    "{rel} comes from the skel, not a backup; no backup of yours holds it"
-                ));
-                entries.push(Entry {
-                    rel: rel.clone(),
-                    src: skel.join(&rel),
-                    origin: Origin::Skel,
-                });
-            }
-            None => {
-                // Not fatal. A shell with no configuration is a shell running on
-                // its defaults, and that is a legitimate outcome. What must not
-                // happen is the compositor config going missing, below.
-                progress(&format!(
-                    "no backup or skel holds {rel}; {} will start on its own defaults",
-                    target.display_name
-                ));
-            }
+        if let Some(entry) = pull(
+            rel,
+            backups_root,
+            skel,
+            false,
+            &format!("{} will start on its own defaults", target.display_name),
+            progress,
+        ) {
+            entries.push(entry);
+        }
+    }
+
+    // State is the same question as configuration, and it has to be asked the
+    // same way: a switch that removes the outgoing shell's state directory on
+    // its way out can only do that because the backup is about to be the way
+    // back. Without this the state would be saved and never read — which is
+    // exactly what happened while nothing deleted it, since the files simply
+    // stayed on disk.
+    if let Some(rel) = target.state_dir {
+        if let Some(entry) = pull(
+            rel,
+            backups_root,
+            skel,
+            true,
+            &format!(
+                "no backup or skel holds {rel}; {} starts with no state carried over",
+                target.display_name
+            ),
+            progress,
+        ) {
+            entries.push(entry);
         }
     }
 
@@ -498,20 +566,83 @@ fn plan(
     Ok(entries)
 }
 
+/// Where one of a shell's own paths comes from.
+///
+/// Newest backup first and the skel as the fallback, which is the right answer
+/// for anything belonging to a shell rather than to the session: if this machine
+/// has run that shell before, the backup holds how the user had it arranged, and
+/// that is what should come back. The compositor's configuration is the one
+/// exception and is handled by name in [`plan`] instead.
+///
+/// `allow_file` is for paths whose skel copy may be a single file rather than a
+/// directory; a state path is usually a directory and a configuration path
+/// always is, so the strict `is_dir` check stands for the latter. `empty` is
+/// what to say when neither holds the path — a legitimate outcome, never fatal
+/// here, because the fatal case is the compositor's own configuration below.
+fn pull(
+    rel: &str,
+    backups_root: &Path,
+    skel: &Path,
+    allow_file: bool,
+    empty: &str,
+    progress: &mut dyn FnMut(&str),
+) -> Option<Entry> {
+    let rel = rel.trim_start_matches("./").to_string();
+    match newest_backup_holding(backups_root, &rel) {
+        Some(root) => {
+            let src = root.join("home").join(&rel);
+            progress(&format!("{rel} comes from the newest backup that holds it"));
+            Some(Entry {
+                rel,
+                src,
+                origin: Origin::Backup(root),
+            })
+        }
+        None if skel.join(&rel).is_dir() || (allow_file && skel.join(&rel).is_file()) => {
+            progress(&format!(
+                "{rel} comes from the skel, not a backup; no backup of yours holds it"
+            ));
+            Some(Entry {
+                rel: rel.clone(),
+                src: skel.join(&rel),
+                origin: Origin::Skel,
+            })
+        }
+        None => {
+            progress(&format!("no backup or skel holds {rel}; {empty}"));
+            None
+        }
+    }
+}
+
 /// The newest backup that actually holds `rel`, if any.
 ///
-/// Backup directories are named after the moment they were taken, so sorting by
+/// Backup directories are named after the day they were taken, so sorting by
 /// name is sorting by age.
 fn newest_backup_holding(backups_root: &Path, rel: &str) -> Option<PathBuf> {
+    backup_holding(backups_root, rel)
+}
+
+/// The newest backup holding `rel`, whether `rel` is a directory or a file.
+///
+/// Hidden directories are skipped: a copy still being built, or a previous one
+/// left aside by an interrupted replace, is not a backup anything should be
+/// sourcing files from. `exists` rather than `is_dir` because a shell's own
+/// declaration may name a single file, and because an aside can belong to one.
+fn backup_holding(backups_root: &Path, rel: &str) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(backups_root)
         .ok()?
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.is_dir())
+        .filter(|p| {
+            !p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+        })
         .collect();
     dirs.sort();
     dirs.reverse();
-    dirs.into_iter().find(|d| d.join("home").join(rel).is_dir())
+    dirs.into_iter().find(|d| d.join("home").join(rel).exists())
 }
 
 /// Copy every entry into a staging directory and count what landed.
@@ -715,6 +846,146 @@ fn restore(asides: &[Aside], home: &Path) -> bool {
         }
     }
     ok
+}
+
+/// Throw away the rollback copies a finished switch renamed aside.
+///
+/// They exist for exactly one thing: the rollback that a failed `start` or
+/// `verify` would have triggered. Both have succeeded by the time this runs, so
+/// no path in the code can read them again — undoing the switch later reads the
+/// backup instead. Leaving them on disk costs a file per path per switch, and
+/// because most of them live inside a directory that is itself backed up, each
+/// generation was being copied into the next backup too.
+///
+/// "The backup already holds this" is checked, never assumed: the aside is only
+/// dropped when some backup contains that exact path with the same number of
+/// files and the same number of bytes. An aside no backup holds is kept, because
+/// after the swap it may be the only copy left of what was there.
+///
+/// Returns how many were removed and how many were kept.
+fn discard_asides(asides: &[Aside], backups_root: &Path) -> (usize, usize) {
+    let mut dropped = 0;
+    let mut held = 0;
+    for aside in asides {
+        let Some(from) = &aside.kept else {
+            continue;
+        };
+        if !from.exists() {
+            continue;
+        }
+
+        let identical = backup_holding(backups_root, &aside.rel)
+            .map(|root| measure(from) == measure(&root.join("home").join(&aside.rel)))
+            .unwrap_or(false);
+        if !identical {
+            crate::logging::info(&format!(
+                "kept {}, which no backup reproduces byte for byte",
+                from.display()
+            ));
+            held += 1;
+            continue;
+        }
+
+        let removed = if from.is_dir() && !from.is_symlink() {
+            std::fs::remove_dir_all(from)
+        } else {
+            std::fs::remove_file(from)
+        };
+        match removed {
+            Ok(()) => dropped += 1,
+            Err(err) => {
+                crate::logging::error(&format!(
+                    "cannot remove {} after a successful switch: {err}",
+                    from.display()
+                ));
+                held += 1;
+            }
+        }
+    }
+    (dropped, held)
+}
+
+/// Take the outgoing shell's own files off the machine.
+///
+/// Runs only at the tail of a switch: the backup is written, read back and
+/// re-checked, and the new shell has already proved itself alive. Nothing here
+/// is allowed to delete on trust. A path goes only when the backup taken for
+/// this very switch reproduces it byte for byte — the same test
+/// [`discard_asides`] applies to the copies it drops, for the same reason: a
+/// backup that no longer describes what is on disk is not a way back, it is a
+/// reason to leave the file alone.
+///
+/// A mismatch is expected rather than exceptional. The shell was still running
+/// when the backup was taken and was stopped a moment later, so it can easily
+/// have written something in between. The file is then kept and said out loud,
+/// which is the honest outcome: cleaner than it was, and not a delete on a
+/// backup that has gone stale.
+fn clean(
+    outgoing: &Shell,
+    target: &Shell,
+    home: &Path,
+    backup_root: &Path,
+    progress: &mut dyn FnMut(&str),
+) -> (usize, usize) {
+    let mut removed = 0;
+    let mut kept = 0;
+
+    for rel in [outgoing.config_dir, outgoing.state_dir]
+        .into_iter()
+        .flatten()
+    {
+        // Cheap, and the only thing standing between two shells and one of them
+        // deleting the other's live configuration if a future registry ever gave
+        // them the same path.
+        if target.config_dir == Some(rel) || target.state_dir == Some(rel) {
+            crate::logging::warn(&format!(
+                "not cleaning {rel}: {} owns the same path",
+                target.display_name
+            ));
+            kept += 1;
+            continue;
+        }
+
+        let live = home.join(rel);
+        if !live.exists() {
+            continue;
+        }
+
+        let copy = backup_root.join("home").join(rel);
+        if !copy.exists() || measure(&live) != measure(&copy) {
+            let line = format!(
+                "kept {rel}: the backup taken for this switch does not hold it byte for byte"
+            );
+            crate::logging::info(&line);
+            progress(&line);
+            kept += 1;
+            continue;
+        }
+
+        let result = if live.is_dir() && !live.is_symlink() {
+            std::fs::remove_dir_all(&live)
+        } else {
+            std::fs::remove_file(&live)
+        };
+        match result {
+            Ok(()) => {
+                crate::logging::info(&format!("removed {rel} after a successful switch"));
+                progress(&format!(
+                    "removed {rel}; it is still in {}",
+                    backup_root.display()
+                ));
+                removed += 1;
+            }
+            Err(err) => {
+                let line = format!("cannot remove {rel} after a successful switch: {err}");
+                crate::logging::error(&line);
+                progress(&line);
+                kept += 1;
+            }
+        }
+    }
+
+    (removed, kept)
 }
 
 /// Start a shell the way it says it starts.
@@ -1065,577 +1336,5 @@ fn measure(dir: &Path) -> (usize, u64) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::compositor::hyprland::shells::{dms, noctalia};
-    use crate::compositor::hyprland::Hyprland;
-
-    struct Temp(PathBuf);
-
-    impl Temp {
-        fn new(tag: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!(
-                "rsp-apply-{tag}-{}-{:?}",
-                std::process::id(),
-                std::thread::current().id()
-            ));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            Temp(dir)
-        }
-
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for Temp {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn write(path: &Path, body: &str) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, body).unwrap();
-    }
-
-    /// Backups store directories, not files: `config_dir` is always a directory,
-    /// and `newest_backup_holding` checks with `is_dir` for that reason.
-    fn make_backup(root: &Path, name: &str, rels: &[&str]) {
-        for rel in rels {
-            write(
-                &root.join(name).join("home").join(rel).join("marker"),
-                &format!("{name}:{rel}"),
-            );
-        }
-        write(&root.join(name).join("manifest.toml"), "");
-    }
-
-    /// The marker `make_backup` left inside a backed-up directory.
-    fn marker(dir: &Path) -> String {
-        std::fs::read_to_string(dir.join("marker")).unwrap()
-    }
-
-    #[test]
-    fn the_compositor_config_comes_from_the_skel_even_when_a_backup_has_one() {
-        // This is the whole reason `plan` exists. `~/.config/hypr` is in every
-        // backup, because every switch saves it, so "newest backup first" would
-        // hand back the file that launches the shell being replaced. The backup
-        // below deliberately holds a config that starts the old shell.
-        let t = Temp::new("comp-from-skel");
-        let backups = t.path().join("backups");
-        let skel = t.path().join("skel");
-
-        make_backup(
-            &backups,
-            "20260101-000000-001-hyprland-noctalia",
-            &[".config/hypr"],
-        );
-        write(
-            &backups.join(
-                "20260101-000000-001-hyprland-noctalia/home/.config/hypr/config/autostart.lua",
-            ),
-            "hl.exec_cmd(\"noctalia\")",
-        );
-        write(
-            &skel.join(".config/hypr/config/autostart.lua"),
-            "systemctl --user start dms.service",
-        );
-
-        let mut said = Vec::new();
-        let entries = plan(&dms::SHELL, &Hyprland, &backups, &skel, &mut |s| {
-            said.push(s.to_string())
-        })
-        .unwrap();
-
-        let hypr = entries.iter().find(|e| e.rel == ".config/hypr").unwrap();
-        assert_eq!(
-            hypr.origin,
-            Origin::Skel,
-            "the compositor config must not come from a backup"
-        );
-        let body = std::fs::read_to_string(hypr.src.join("config/autostart.lua")).unwrap();
-        assert!(
-            body.contains("dms.service"),
-            "the compositor config the switch would install still launches the old shell: {body}"
-        );
-        assert!(
-            said.iter()
-                .any(|l| l.contains("comes from the skel, not a backup")),
-            "the log has to say where it took it from: {said:?}"
-        );
-    }
-
-    #[test]
-    fn a_shells_own_config_prefers_the_newest_backup_that_holds_it() {
-        // The rule the docs asked for, and the reason it is right for this path:
-        // a backup of DMS on this machine is the user's own arrangement of it.
-        let t = Temp::new("own-from-backup");
-        let backups = t.path().join("backups");
-        let skel = t.path().join("skel");
-
-        make_backup(
-            &backups,
-            "20260101-000000-001",
-            &[".config/DankMaterialShell"],
-        );
-        make_backup(
-            &backups,
-            "20260202-000000-002",
-            &[".config/DankMaterialShell"],
-        );
-        write(
-            &skel.join(".config/DankMaterialShell/settings.json"),
-            "from skel",
-        );
-
-        write(&skel.join(".config/hypr/config/autostart.lua"), "dms");
-
-        let entries = plan(&dms::SHELL, &Hyprland, &backups, &skel, &mut |_| {}).unwrap();
-        let own = entries
-            .iter()
-            .find(|e| e.rel == ".config/DankMaterialShell")
-            .unwrap();
-
-        match &own.origin {
-            Origin::Backup(root) => {
-                assert_eq!(
-                    root.file_name().unwrap().to_string_lossy(),
-                    "20260202-000000-002",
-                    "the newest backup holding it must win"
-                );
-                assert_eq!(
-                    marker(&own.src),
-                    "20260202-000000-002:.config/DankMaterialShell"
-                );
-            }
-            Origin::Skel => panic!("a backup holding it exists, so the skel must not be used"),
-        }
-    }
-
-    #[test]
-    fn a_shell_falls_back_to_the_skel_when_no_backup_holds_its_config() {
-        let t = Temp::new("fallback-skel");
-        let backups = t.path().join("backups");
-        let skel = t.path().join("skel");
-
-        // A backup exists, but only of the shell being replaced.
-        make_backup(&backups, "20260101-000000-001", &[".config/noctalia"]);
-        write(
-            &skel.join(".config/DankMaterialShell/settings.json"),
-            "from skel",
-        );
-        write(&skel.join(".config/hypr/config/autostart.lua"), "dms");
-
-        let entries = plan(&dms::SHELL, &Hyprland, &backups, &skel, &mut |_| {}).unwrap();
-        let own = entries
-            .iter()
-            .find(|e| e.rel == ".config/DankMaterialShell")
-            .unwrap();
-        assert_eq!(own.origin, Origin::Skel);
-        assert_eq!(
-            std::fs::read_to_string(own.src.join("settings.json")).unwrap(),
-            "from skel"
-        );
-    }
-
-    #[test]
-    fn a_shell_with_no_config_anywhere_still_switches_on_its_defaults() {
-        // The counterpart to the compositor rule: a shell that has never been
-        // configured is not a broken switch, it is a shell on its defaults. That
-        // must not block the switch, but it has to be said out loud.
-        let t = Temp::new("defaults-ok");
-        let backups = t.path().join("backups");
-        let skel = t.path().join("skel");
-        std::fs::create_dir_all(&backups).unwrap();
-        write(&skel.join(".config/hypr/config/autostart.lua"), "dms");
-
-        let mut said = Vec::new();
-        let entries = plan(&dms::SHELL, &Hyprland, &backups, &skel, &mut |s| {
-            said.push(s.to_string())
-        })
-        .expect("a missing shell config must not block the switch");
-
-        assert!(!entries.iter().any(|e| e.rel == ".config/DankMaterialShell"));
-        assert!(
-            said.iter().any(|l| l.contains("on its own defaults")),
-            "silently dropping a config would hide what the user is getting: {said:?}"
-        );
-    }
-
-    #[test]
-    fn plan_refuses_when_the_skel_has_no_compositor_config() {
-        let t = Temp::new("nothing");
-        let backups = t.path().join("backups");
-        let skel = t.path().join("skel");
-        std::fs::create_dir_all(&backups).unwrap();
-        std::fs::create_dir_all(&skel).unwrap();
-
-        let err = plan(&dms::SHELL, &Hyprland, &backups, &skel, &mut |_| {}).unwrap_err();
-        assert!(
-            err.contains("nothing to switch to"),
-            "the error has to say why refusing is the safe answer: {err}"
-        );
-    }
-
-    #[test]
-    fn staging_counts_what_it_copied_and_the_swap_leaves_the_old_copy_aside() {
-        let t = Temp::new("swap");
-        let home = t.path().join("home");
-        let backups = t.path().join("backups");
-        let skel = t.path().join("skel");
-        std::fs::create_dir_all(&home).unwrap();
-
-        write(
-            &skel.join(".config/hypr/config/autostart.lua"),
-            "new skel config",
-        );
-        write(
-            &skel.join(".config/hypr/scripts/x.sh"),
-            "#!/bin/sh\necho hi\n",
-        );
-        // Give the source the mode a real skel script has (they are 755 in git),
-        // so this asserts the mode is carried across, not that one is invented.
-        std::fs::set_permissions(
-            skel.join(".config/hypr/scripts/x.sh"),
-            std::fs::Permissions::from_mode(0o755),
-        )
-        .unwrap();
-        write(
-            &home.join(".config/hypr/config/autostart.lua"),
-            "old live config",
-        );
-        // A second path that does not exist yet, so one swap covers both cases:
-        // something replaced and something created.
-        write(&skel.join(".config/DankMaterialShell/settings.json"), "{}");
-
-        let entries = plan(&dms::SHELL, &Hyprland, &backups, &skel, &mut |_| {}).unwrap();
-        let staging = stage(&entries, &home, "dms", "20260101-000000-000").unwrap();
-
-        let staged_files = measure(&staging.join(".config/hypr")).0;
-        assert!(staged_files > 0, "staging copied nothing");
-
-        let asides = swap(
-            &entries,
-            &staging,
-            &home,
-            "dms",
-            "20260101-000000-000",
-            &mut |_| {},
-        )
-        .expect("swap");
-
-        let live = std::fs::read_to_string(home.join(".config/hypr/config/autostart.lua")).unwrap();
-        assert_eq!(
-            live, "new skel config",
-            "the skel did not reach the live path"
-        );
-
-        assert_eq!(
-            asides.len(),
-            2,
-            "both the replaced and the created path have to be recorded"
-        );
-        // Looked up by name rather than by position: `plan` walks the shell's own
-        // config before the compositor's, and a test that depends on that ordering
-        // breaks the day the order stops mattering.
-        let kept = asides
-            .iter()
-            .find(|a| a.rel == ".config/hypr")
-            .and_then(|a| a.kept.as_ref())
-            .expect("hypr was displaced, so it has an aside");
-        let kept = std::fs::read_to_string(kept.join("config/autostart.lua")).unwrap();
-        assert_eq!(kept, "old live config", "the aside is not the old config");
-
-        // An executable script must still be executable, or the staged copy is
-        // subtly broken in a way a file count cannot see.
-        let mode = std::fs::metadata(home.join(".config/hypr/scripts/x.sh"))
-            .unwrap()
-            .permissions()
-            .mode();
-        assert_eq!(
-            mode & 0o777,
-            0o755,
-            "the staged script did not keep the mode it had in the skel"
-        );
-
-        assert!(restore(&asides, &home));
-        let back = std::fs::read_to_string(home.join(".config/hypr/config/autostart.lua")).unwrap();
-        assert_eq!(
-            back, "old live config",
-            "rollback did not put the original back"
-        );
-        assert!(
-            !home.join(".config/DankMaterialShell").exists(),
-            "rollback left the path it created in place"
-        );
-    }
-
-    #[test]
-    fn a_path_that_did_not_exist_before_is_removed_again_on_rollback() {
-        // Before the switch there is no DMS config at all. Rolling back therefore
-        // cannot "put the old one back", because there was no old one: it has to
-        // remove what the switch created, or the next Noctalia login reads a DMS
-        // configuration and behaves oddly with no obvious cause.
-        let t = Temp::new("no-aside");
-        let home = t.path().join("home");
-        let skel = t.path().join("skel");
-        std::fs::create_dir_all(&home).unwrap();
-        write(&skel.join(".config/DankMaterialShell/settings.json"), "{}");
-
-        let entries = vec![Entry {
-            rel: ".config/DankMaterialShell".to_string(),
-            src: skel.join(".config/DankMaterialShell"),
-            origin: Origin::Skel,
-        }];
-        let staging = stage(&entries, &home, "dms", "20260101-000000-000").unwrap();
-        let asides = swap(
-            &entries,
-            &staging,
-            &home,
-            "dms",
-            "20260101-000000-000",
-            &mut |_| {},
-        )
-        .expect("swap");
-
-        assert_eq!(
-            asides.len(),
-            1,
-            "the path was touched, so it must be recorded"
-        );
-        assert!(
-            asides[0].kept.is_none(),
-            "nothing was displaced, so there is nothing to put back"
-        );
-        assert!(home
-            .join(".config/DankMaterialShell/settings.json")
-            .is_file());
-
-        assert!(restore(&asides, &home));
-        assert!(
-            !home.join(".config/DankMaterialShell").exists(),
-            "rollback left the created configuration in place: {:?}",
-            std::fs::read_dir(home.join(".config")).map(|d| d
-                .filter_map(|e| e.ok())
-                .map(|e| e.file_name())
-                .collect::<Vec<_>>())
-        );
-    }
-
-    #[test]
-    fn staging_short_copied_files_are_caught_before_anything_is_swapped() {
-        // The check compares the two counts after copying. Make them disagree by
-        // pointing at a source that changes underneath the measurement.
-        let t = Temp::new("short");
-        let home = t.path().join("home");
-        let src = t.path().join("src");
-        std::fs::create_dir_all(&home).unwrap();
-        write(&src.join("one.txt"), "1");
-        write(&src.join("two.txt"), "2");
-
-        let entries = vec![Entry {
-            rel: ".config/thing".to_string(),
-            src: src.clone(),
-            origin: Origin::Skel,
-        }];
-
-        // Copy succeeds and the counts match, so this staging is accepted.
-        let staging = stage(&entries, &home, "dms", "20260101-000000-000").unwrap();
-        assert_eq!(measure(&staging.join(".config/thing")).0, 2);
-
-        // Now a source that is not there at all: copy fails rather than writing
-        // an empty tree, which is what keeps a later swap from wiping a path.
-        let entries = vec![Entry {
-            rel: ".config/missing".to_string(),
-            src: t.path().join("nope"),
-            origin: Origin::Skel,
-        }];
-        assert!(stage(&entries, &home, "dms", "20260101-000000-001").is_err());
-    }
-
-    #[test]
-    fn pids_of_finds_this_process_and_ignores_a_name_nobody_has() {
-        let me = std::process::id();
-        let comm = std::fs::read_to_string(format!("/proc/{me}/comm")).unwrap();
-        let comm = comm.trim().to_string();
-        assert!(
-            pids_of(&comm).contains(&me),
-            "should find pid {me} by comm {comm}"
-        );
-        assert!(
-            pids_of("definitely-not-a-running-process-xyzzy").is_empty(),
-            "a name nobody has must come back empty, not a guess"
-        );
-    }
-
-    #[test]
-    fn the_backup_check_rejects_a_directory_with_no_manifest() {
-        // apply() refuses to proceed on a backup root with no manifest, because
-        // that backup is the only way back from the steps that follow.
-        let t = Temp::new("no-manifest");
-        let root = t.path().join("20260101-000000-001");
-        std::fs::create_dir_all(&root).unwrap();
-        assert!(!root.join("manifest.toml").is_file());
-    }
-
-    #[test]
-    fn both_shell_definitions_the_plan_is_tested_against_are_the_ones_registered() {
-        // Guards against the tests drifting onto a different shell than the one
-        // a switch actually uses.
-        assert_eq!(dms::SHELL.config_dir, Some(".config/DankMaterialShell"));
-        assert_eq!(dms::SHELL.systemd_user_unit, Some("dms"));
-        assert_eq!(noctalia::SHELL.systemd_user_unit, None);
-        assert_eq!(Hyprland.config_dir(), ".config/hypr");
-    }
-
-    #[test]
-    fn the_skel_paths_resolve_to_real_directories() {
-        for (comp, shell) in [("hyprland", "dms"), ("hyprland", "noctalia")] {
-            let dir = skel_for(comp, shell);
-            assert!(dir.is_dir(), "{} should exist", dir.display());
-        }
-    }
-
-    #[test]
-    fn dms_declares_the_calendar_service_it_draws_widgets_from() {
-        // Without this the live switch starts DMS with nothing behind it and the
-        // login that follows looks merely incomplete rather than broken.
-        assert_eq!(
-            dms::SHELL.companion_systemd_user_units,
-            &["dcal"],
-            "DMS draws calendar widgets that dcal.service provides"
-        );
-        assert!(
-            noctalia::SHELL.companion_systemd_user_units.is_empty(),
-            "Noctalia draws no widgets from a helper service"
-        );
-    }
-
-    #[test]
-    fn the_notification_bus_is_read_from_the_live_system_or_reports_nothing() {
-        // There is no session bus in a plain test run, so the honest expectation
-        // is `None` — the point is that it must not invent an answer, and must not
-        // panic when the name is unowned.
-        let owner = notification_owner();
-        println!("notification owner on this bus: {owner:?}");
-        if let Some(pid) = owner {
-            assert!(pid > 0, "a parsed pid should be positive, got {pid}");
-        }
-    }
-
-    const LAUNCHER: &str = ".local/share/applications/dev.noctalia.Noctalia.desktop";
-
-    #[test]
-    fn switching_to_dms_would_hide_the_noctalia_launcher() {
-        // The whole point of listing one launcher path per shell: DMS is installed
-        // and visible, Noctalia is installed but hidden, so the menu cannot be used
-        // to launch the shell that is no longer running.
-        let mut said = Vec::new();
-        let entries = plan(
-            &dms::SHELL,
-            &Hyprland,
-            Path::new("/nonexistent-backups"),
-            &skel_for("hyprland", "dms"),
-            &mut |s| said.push(s.to_string()),
-        )
-        .expect("the real dms skel should plan cleanly");
-
-        let launcher = entries
-            .iter()
-            .find(|e| e.rel == LAUNCHER)
-            .expect("dms must carry the launcher path so it can be hidden");
-        let body = std::fs::read_to_string(&launcher.src).unwrap();
-        assert!(
-            body.contains("NoDisplay=true"),
-            "the staged override would not hide the launcher: {body}"
-        );
-
-        // And the rest of `~/.local/share/applications` must be untouched, which is
-        // why a single file is listed rather than the directory.
-        assert!(
-            !entries.iter().any(|e| e.rel == ".local/share/applications"),
-            "listing the whole directory would replace every launcher the user has"
-        );
-    }
-
-    #[test]
-    fn switching_back_to_noctalia_would_bring_its_launcher_back() {
-        let mut said = Vec::new();
-        let entries = plan(
-            &noctalia::SHELL,
-            &Hyprland,
-            Path::new("/nonexistent-backups"),
-            &skel_for("hyprland", "noctalia"),
-            &mut |s| said.push(s.to_string()),
-        )
-        .expect("the real noctalia skel should plan cleanly");
-
-        let launcher = entries
-            .iter()
-            .find(|e| e.rel == LAUNCHER)
-            .expect("noctalia must carry the launcher path to undo the hiding");
-        let body = std::fs::read_to_string(&launcher.src).unwrap();
-        assert!(
-            !body.contains("NoDisplay"),
-            "the skel entry still hides the launcher, so switching back would leave \
-             Noctalia installed and invisible"
-        );
-    }
-
-    #[test]
-    fn a_shared_xdg_directory_is_never_replaced_as_a_whole() {
-        // `swap` renames the live path aside and puts the staged one in place; it
-        // does not merge. Any directory shared with the rest of the desktop listed
-        // as a skel extra would take the user's other files with it.
-        for shell in [&dms::SHELL, &noctalia::SHELL] {
-            for rel in shell.skel_extra_paths {
-                assert!(
-                    !matches!(
-                        *rel,
-                        ".config"
-                            | ".local"
-                            | ".local/share"
-                            | ".local/state"
-                            | ".local/share/applications"
-                            | ".config/gtk-3.0"
-                            | ".config/gtk-4.0"
-                    ),
-                    "{} lists {rel}, which would replace a directory the user shares \
-                     with the rest of their desktop",
-                    shell.display_name
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn dms_state_and_theme_paths_reach_the_plan_from_the_real_skel() {
-        let entries = plan(
-            &dms::SHELL,
-            &Hyprland,
-            Path::new("/nonexistent-backups"),
-            &skel_for("hyprland", "dms"),
-            &mut |_| {},
-        )
-        .unwrap();
-        // Individual files, not the gtk directories: the plan is what decides how
-        // much of the user's desktop gets replaced, and this list is the contract.
-        for rel in [
-            ".config/DankMaterialShell",
-            ".config/hypr",
-            ".config/gtk-3.0/settings.ini",
-            ".config/gtk-4.0/settings.ini",
-            ".config/gtk-4.0/gtk.css",
-            ".local/state/DankMaterialShell",
-            LAUNCHER,
-        ] {
-            assert!(
-                entries.iter().any(|e| e.rel == rel),
-                "{rel} should be part of the switch to dms; planned: {:?}",
-                entries.iter().map(|e| &e.rel).collect::<Vec<_>>()
-            );
-        }
-    }
-}
+#[path = "tests/apply.rs"]
+mod tests;

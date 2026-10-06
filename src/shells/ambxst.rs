@@ -1,6 +1,7 @@
 //! Ambxst, started as a plain process.
 //!
-//! What is the same wherever it runs: no package, and a direct process.
+//! What is the same wherever it runs: no package, so nothing to install and
+//! nothing to uninstall, and a direct process.
 //!
 //! It records **no config directory at all**, which is the reason it is refused
 //! today. With nowhere recorded for the config there is nothing to back up and
@@ -23,6 +24,7 @@ pub const IDENTITY: Identity = Identity {
     binary: "ambxst",
     start_argv: &["ambxst"],
     install_plan: None,
+    uninstall_plan: None,
     companion_systemd_user_units: &[],
     logo: Some("ambxst-logo-color.svg"),
 };

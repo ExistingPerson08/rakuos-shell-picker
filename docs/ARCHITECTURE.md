@@ -5,7 +5,9 @@
 ```
 src/main.rs                 hanya memanggil app::run()
 src/app.rs                  aplikasi GTK/libadwaita, window, CSS
-src/lib.rs                  daftar modul publik + test registry
+src/lib.rs                  daftar modul publik
+src/tests/                  semua test, dipisah dari file produksi
+                            (lihat "Di mana testnya" di docs/DEVELOPMENT.md)
 
 src/ui/                     widget — tidak tahu shell, tidak tahu compositor
   mod.rs                    menyusun halaman, memegang Selection
@@ -17,7 +19,8 @@ src/ui/                     widget — tidak tahu shell, tidak tahu compositor
 
 src/shells/                 satu file per shell — apa shell itu, di compositor mana pun
   mod.rs                    daftar semua identity (untuk test)
-  noctalia.rs               IDENTITY: id, nama, upstream, paket, install plan, logo
+  noctalia.rs               IDENTITY: id, nama, upstream, paket, install plan,
+                            uninstall plan, logo
   dms.rs
   caelestia.rs
   ambxst.rs
@@ -29,7 +32,8 @@ src/compositor/             satu folder per compositor
     shells/                 satu folder per shell — shell itu DI HYPRLAND
       mod.rs                urutan kartu
       noctalia/
-        mod.rs              PORT: ke mana ditulis, apa yang diselamatkan
+        mod.rs              PORT: ke mana ditulis, apa yang diselamatkan,
+                            apa yang dibersihkan saat shell keluar
         skel/               file yang dipasang switch (.config/hypr, gtk, launcher)
       dms/
         mod.rs
@@ -40,7 +44,8 @@ src/compositor/             satu folder per compositor
     mod.rs                  kosong — dicadangkan, catatannya di sana
   fake.rs                   compositor kedua untuk test, hanya di build test
 
-src/shell.rs                tipe Identity + Port + Shell, dan cara memeriksa satu shell
+src/shell.rs                tipe Identity + Port + Shell + InstallPlan +
+                            UninstallPlan, dan cara memeriksa satu shell
 src/session.rs              state active/previous di XDG
 ```
 
@@ -60,10 +65,10 @@ yang berubah menurut compositor:
 |---|---|
 | `id`, `display_name`, `upstream` | `Identity` | — |
 | `package`, `start_argv`, `logo` | `Identity` | — |
-| `install_plan`, `companion_systemd_user_units` | `Identity` | — |
+| `install_plan`, `uninstall_plan`, `companion_systemd_user_units` | `Identity` | — |
 | `config_dir`, `state_dir` | — | `Port` |
 | `systemd_user_unit`, `mechanism` | — | `Port` |
-| `skel_extra_paths`, `health_socket` | — | `Port` |
+| `skel_extra_paths`, `backup_extra_paths` | — | `Port` |
 
 `Port` sengaja tidak punya field yang bisa berduplikasi, jadi menyalinnya ke
 compositor lain tidak bisa gagal diam-diam. `Shell::join` adalah `const fn`,
@@ -92,7 +97,8 @@ session ──▶ shell
 
 ## Test yang menjaga pemisahan ini
 
-Di `src/lib.rs`, `mod registry_tests`:
+Di `src/tests/lib_registry.rs` (dideklarasikan dari `src/lib.rs` sebagai
+`mod registry_tests`):
 
 - `one_identity_serves_every_compositor_offering_that_shell` — membandingkan
   setiap field yang dimiliki `Identity` dengan yang muncul di tiap compositor.
@@ -112,11 +118,13 @@ Di `src/lib.rs`, `mod registry_tests`:
 
 ## Menambah shell
 
-Dua folder, satu di global dan satu per compositor.
+Dua folder, satu di global dan satu per compositor. Yang pertama menjawab
+"shell ini dipasang dan dibersihkan bagaimana", yang kedua menjawab "di
+compositor ini ditulis dan diselamatkan di mana".
 
 ```rust
 // src/shells/nama_baru.rs — yang benar-benar milik shell, di mana pun
-use crate::shell::{Identity, InstallPlan, Shell};
+use crate::shell::{Identity, InstallPlan, UninstallPlan};
 
 pub const IDENTITY: Identity = Identity {
     id: "nama_baru",
@@ -127,16 +135,23 @@ pub const IDENTITY: Identity = Identity {
     start_argv: &["nama-baru"],
     companion_systemd_user_units: &[],
     logo: Some("nama-baru.svg"),
+    // Paketnya ada di repo? Isi. Kalau tidak, `None`.
     install_plan: None,
+    // Paketnya boleh dilepas lagi? Isi. Base image selalu `None`.
+    uninstall_plan: None,
 };
 ```
 
+`a_shell_that_can_be_installed_can_also_be_removed` menagih pasangan itu:
+mengisi `install_plan` tanpa `uninstall_plan` membuat shell yang bisa dipasang
+tapi tidak pernah bisa dibuang, dan switch berikutnya akan meninggalkannya.
+
 Lalu satu folder per compositor yang menawarkannya, isinya lengkap dari install
-sampai backup:
+sampai bersih:
 
 ```
 src/compositor/hyprland/shells/nama_baru/
-  mod.rs      PORT: ke mana ditulis, apa yang diselamatkan
+  mod.rs      PORT: ke mana ditulis, apa yang diselamatkan, apa yang dibersihkan
   skel/       file yang dipasang switch
 ```
 
@@ -152,7 +167,6 @@ const PORT: Port = Port {
     mechanism: StartMechanism::DirectProcess,
     skel_extra_paths: &[],
     backup_extra_paths: &[],
-    health_socket: None,
 };
 
 pub static SHELL: Shell = Shell::join(IDENTITY, PORT);
@@ -170,15 +184,21 @@ Ulangi folder itu untuk setiap compositor lain yang menawarkannya.
 `<compositor>/shells/nama_baru/mod.rs` akan berbeda di `mechanism` atau
 `systemd_user_unit` kalau memang begitu, dan identik kalau memang sama.
 
-Dua field yang sering tertukar:
+Tiga field yang sering tertukar:
 
 - `skel_extra_paths` — file yang switch **timpa**. Tambah di sini berarti
   menimpa file milik user, jadi harus ada di `backup_extra_paths` atau
   `SHARED_PATHS`. `every_installed_path_is_backed_up` akan menggagalkan kalau
   tidak.
 - `backup_extra_paths` — file milik shell ini yang switch hancurkan tanpa
-  tercatat di `config_dir`/`state_dir`. Contohnya milik DMS: direktori state-nya
-  sampai lewat skel, bukan lewat `state_dir`.
+  tercatat di `config_dir`/`state_dir`, dan yang tidak punya tempat lain untuk
+  dibaca balik. Launcher Noctalia ada di sini karena DMS menimpanya.
+- `config_dir` dan `state_dir` — bukan sekadar lokasi. Ketiganya (dua ini
+  beserta `backup_extra_paths`) adalah daftar backup, dan dua ini juga daftar
+  yang **dibersihkan** setelah switch serta daftar yang **dibaca balik** oleh
+  `plan` saat shell itu dipilih lagi. Mengisi `state_dir` otomatis menambah
+  ketiganya; membuat daftar bersih terpisah hanya menambah tempat yang bisa
+  berbeda.
 
 Test `every_registered_shell_has_its_logo_on_disk` gagal kalau SVG-nya lupa
 ditaruh di `assets/`.

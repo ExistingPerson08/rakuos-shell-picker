@@ -6,6 +6,9 @@
 //! see `docs/SAFETY.md`, rule 4.
 //!
 //! - **start**: a direct process, `ambxst`.
+//! - **clean**: nothing. With no `config_dir` there is nothing to remove, which
+//!   is the same gap that makes the switch refuse it — see `docs/SAFETY.md`,
+//!   rule 4.
 //! - **verify**: a process named `ambxst` is alive.
 
 use crate::shell::{Port, Shell, StartMechanism};

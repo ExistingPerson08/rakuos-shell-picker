@@ -128,6 +128,38 @@ cargo fmt --all
 cargo run                    # jalankan picker
 ```
 
+## Di mana testnya
+
+Semua test ada di **`src/tests/`**, satu folder, bukan diselipkan di bawah file
+yang diuji. File produksi hanya menyimpan deklarasinya, tiga baris:
+
+```rust
+#[cfg(test)]
+#[path = "tests/backup.rs"]
+mod tests;
+```
+
+`#[path]` hanya memindahkan **lokasi file**. Modulnya tetap
+`crate::backup::tests`, jadi `use super::*;` di dalam test masih menunjuk ke
+`crate::backup` seperti biasa, dan nama test di hasil `cargo test` tidak
+berubah (`backup::tests::...`).
+
+Penamaan filenya mengikuti sumbernya: `src/backup.rs` -> `src/tests/backup.rs`.
+Kalau satu file punya beberapa blok test, tambahkan suffix namanya:
+`src/switch.rs` punya `src/tests/switch.rs`, `src/tests/switch_prepare.rs`,
+`src/tests/switch_install.rs` dan `src/tests/switch_uninstall.rs`.
+
+Dipisah supaya file produksi bisa dibaca tanpa melewati 400 baris test, dan
+supaya tidak ada yang tergoda membuang test waktu merapikan rilis. Test tidak
+pernah ikut ke binary — `#[cfg(test)]` membuatnya tidak dikompilasi sama sekali
+saat `cargo build`, dan itu bisa dibuktikan:
+
+```bash
+strings target/release/rakuos-shell-picker | grep -c two_switches_in_a_row   # 0
+```
+
+Test baru = file baru di `src/tests/`, bukan blok baru di bawah file produksi.
+
 ## Runtime butuh apa
 
 | Kebutuhan | Alasan | Tanpa ini |

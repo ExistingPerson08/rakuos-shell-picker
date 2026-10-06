@@ -127,8 +127,6 @@ fn switch(args: &[String]) -> ! {
 }
 
 fn main() -> gtk4::glib::ExitCode {
-    env_logger::init();
-
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--dry-run") => dry_run(&args[1..]),

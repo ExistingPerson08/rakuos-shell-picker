@@ -55,7 +55,7 @@ fn load(shell: &Shell) -> Option<gdk::Texture> {
     match gdk::Texture::from_file(&gio::File::for_path(path)) {
         Ok(texture) => Some(texture),
         Err(err) => {
-            log::warn!("{}: cannot load logo: {err}", shell.id);
+            crate::logging::warn(&format!("{}: cannot load logo: {err}", shell.id));
             None
         }
     }

@@ -4,6 +4,8 @@
 //! that its verification is unsolved, are in [`crate::shells::caelestia`].
 //!
 //! - **backup**: `~/.config/quickshell/caelestia`, once it exists.
+//! - **clean**: that same path, under the same condition as everywhere else —
+//!   the backup for the switch has to reproduce it byte for byte first.
 //! - **start**: the compositor's start event runs `quickshell -c caelestia`.
 //!
 //! The card is refused rather than offered, because there is no package to install

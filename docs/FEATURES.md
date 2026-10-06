@@ -61,25 +61,29 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | D5 | Tulis state secara atomik (temp file + rename) | belum |
 | D6 | Simpan compositor aktif, bukan cuma shell | belum |
 
-## E. Backend — belum dimulai
+## E. Backend
 
-Ini inti dari proyek, dan sengaja ditahan sampai UI dikunci.
+Inti dari proyek. `switch::prepare` (langkah 1–3) dan `apply::apply_with`
+(langkah sisanya) adalah dua bagiannya; urutan persisnya ada di
+[SAFETY.md](SAFETY.md).
 
 | # | Fitur | Status |
 |---|---|---|
-| E1 | Trait `ShellBackend` (start/stop/status/backup) | belum |
-| E2 | Backup konfigurasi sebelum switch | belum |
-| E3 | Rollback kalau switch gagal | belum |
-| E4 | Backend Noctalia | belum |
-| E5 | Backend DMS | belum |
-| E6 | Backend Caelestia | belum |
-| E7 | Backend Ambxst | belum |
-| E8 | Stop shell lama dengan rapi (bukan `kill -9`) | belum |
-| E9 | Start shell baru dengan mekanisme yang benar | belum |
-| E10 | Deteksi shell yang jalan tanpa lewat daftar kita | belum |
+| E1 | Trait `ShellBackend` (start/stop/status/backup) | dibatalkan — diganti `Identity` + `Port` + `StartMechanism`, jadi fakta per shell dideklarasikan bukan diimplementasikan |
+| E2 | Backup konfigurasi sebelum switch | selesai — `switch::backup_sources` + `backup::create`, dibaca ulang dan dicocokkan dengan manifest |
+| E3 | Rollback kalau switch gagal | selesai — `Apply::Failed { rolled_back }` |
+| E4 | Backend Noctalia | selesai (registry, `StartMechanism::Autostart`) |
+| E5 | Backend DMS | selesai (registry, `StartMechanism::SystemdUserUnit`) |
+| E6 | Backend Caelestia | selesai sebagai registrasi; switch ke sana ditolak (verifikasi belum terselesaikan) |
+| E7 | Backend Ambxst | selesai sebagai registrasi; switch ke sana ditolak (`config_dir` belum diketahui) |
+| E8 | Stop shell lama dengan rapi (bukan `kill -9`) | selesai — SIGTERM, tunggu, batas waktu, `kill -KILL` hanya upaya terakhir |
+| E9 | Start shell baru dengan mekanisme yang benar | selesai — `StartMechanism`, dibaca lagi oleh `verify` |
+| E10 | Deteksi shell yang jalan tanpa lewat daftar kita | selesai — `process_running` lewat `/proc` |
 | E11 | Registry shell untuk compositor kedua | dibatalkan — Niri dihapus, `compositor::niri` mencatat cara menambahkannya |
-| E12 | Cek environment sebelum switch (display, Wayland) | selesai (UI) |
-| E13 | Guard di backend: `preflight()` menolak cross-compositor | sebagian (UI menolak, `preflight()` belum) |
+| E12 | Cek environment sebelum switch (display, Wayland) | selesai — deteksi menolak kalau tidak ada sesi Wayland, `prepare` langkah 2 menolak target yang tidak bisa jalan |
+| E13 | Guard di backend | selesai — `Refusal::Compositor` di `switch::prepare` langkah 1, arahnya sama dengan guard UI |
+| E14 | Bersih setelah switch: `.pre-*`, config dan state shell keluar | selesai — `apply::clean`, hanya yang direproduksi backup byte untuk byte |
+| E15 | Hapus paket shell yang ditinggalkan | selesai — `switch::uninstall` + `Identity::uninstall_plan`; Noctalia `None`, runtime bersama tidak pernah disentuh |
 
 ## G. Logging
 
@@ -101,8 +105,7 @@ Spesifikasi lengkap di [LOGGING.md](LOGGING.md).
 | Item | Alasan |
 |---|---|
 | Mengganti compositor (Hyprland → compositor lain) | Berarti ganti image; urusan **"RakuOS system management"**. Ditolak oleh guard, lihat [SAFETY.md](SAFETY.md) |
-| Installer paket | Paket datang dari image; picker tidak memanggil dnf |
-| Installer paket | Paket datang dari image; picker tidak memanggil yum/dnf |
+| `rum autoremove` | Runtime yang jadi yatim setelah shell dibersihkan adalah kandidatnya, tapi berjalan tanpa izin shell dan bisa menjatuhkan sesuatu yang dipakai paket lain — pilihan terpisah, bukan efek samping switch |
 | Mengedit isi konfigurasi | Picker memilih, bukan editor |
 | Window manager-style tiling | Bukan WM, dan WM yang memegang layout |
 | Config preset / generator | Berisiko menimpa file user |

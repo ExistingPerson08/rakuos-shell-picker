@@ -28,6 +28,15 @@
 //!   machine at all. One transaction would take the shell's own packages down with
 //!   it for no benefit.
 //!
+//! - **uninstall**: one stage, `pkexec rum remove -y` over DMS's own packages and
+//!   nothing else. It runs at the very end of a switch to something else, once
+//!   the new shell has proved itself alive, and it deliberately leaves
+//!   `quickshell-git` behind: that is a runtime rather than DMS, another shell
+//!   can run on it, and taking it out from under the shell just switched to is
+//!   the exact failure this list is here to prevent. An orphaned runtime stays a
+//!   candidate for `rum autoremove`, which `docs/SAFETY.md` keeps as a separate
+//!   explicit choice.
+//!
 //! - **start**: a systemd user unit. Confirmed present in the package at
 //!   `/usr/lib/systemd/user/dms.service`, so starting means
 //!   `systemctl --user start dms` and not a bare `dms run`.
@@ -40,11 +49,13 @@
 //! same on both; the Hyprland page additionally carries the launcher entry that
 //! hides Noctalia while DMS is the shell.
 //!
-//! No state directory is recorded, because whether DMS keeps one has not been
-//! established. A rollback therefore restores the config and nothing more, which
-//! is the honest limit rather than a guess.
+//! Its state directory is `~/.local/state/DankMaterialShell`, declared as
+//! [`Port::state_dir`] rather than as one more extra path: it is DMS's own state
+//! rather than something the skel hands out, so it belongs to the same question as
+//! the config — saved before a switch, cleaned after one, and read back from the
+//! newest backup on the way home.
 
-use crate::shell::{Identity, InstallPlan};
+use crate::shell::{Identity, InstallPlan, UninstallPlan};
 
 pub const IDENTITY: Identity = Identity {
     id: "dms",
@@ -71,6 +82,30 @@ pub const IDENTITY: Identity = Identity {
         ],
         program: "pkexec",
         args: &["rum", "install", "-y"],
+    }),
+    uninstall_plan: Some(UninstallPlan {
+        package: "dms",
+        // DMS's own packages and nothing else. `quickshell-git` is deliberately
+        // left out even though it was installed first: it is a runtime rather
+        // than the shell, another shell can run on it, and taking it out from
+        // under the shell just switched to is exactly the failure this list is
+        // here to prevent. An orphaned runtime is a candidate for
+        // `rum autoremove`, which SAFETY.md keeps as a separate, explicit choice
+        // rather than something a switch does on its own.
+        //
+        // `rum remove` also refuses any package another package still requires,
+        // so `matugen` in particular cannot be pulled out from under something
+        // that uses it — the solver is the second line of defence, not the first.
+        stages: &[&[
+            "dms",
+            "dms-cli",
+            "dgop",
+            "danksearch",
+            "dankcalendar-git",
+            "matugen",
+        ]],
+        program: "pkexec",
+        args: &["rum", "remove", "-y"],
     }),
     companion_systemd_user_units: &["dcal"],
     logo: Some("danklogo2.svg"),

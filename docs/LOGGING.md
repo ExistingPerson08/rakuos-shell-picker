@@ -12,6 +12,24 @@ satu Channel untuk satu tujuan.
 Aturan dasar: **yang sukses tidak ditulis sebagai log.** Yang berhasil tidak
 perlu bukti; yang gagal harus bisa dibaca dan ditindaklanjuti.
 
+## Satu sistem log, bukan dua
+
+Semua log keluar lewat satu pintu: `src/logging.rs`, lewat
+`logging::info` / `logging::warn` / `logging::error`. Tidak ada crate logging
+lain di `Cargo.toml`.
+
+`log` dan `env_logger` pernah ada di sana dan sudah dibuang, karena keduanya
+melanggar aturan di halaman ini: `env_logger` menulis ke stderr, bukan ke file
+`0600` di `$XDG_RUNTIME_DIR`, dan ia tidak ikut format RFC 3339 + level di
+bawah. Satu kasus nyata dari punyanya: `env_logger::init()` ada di `main()` dan
+satu `log::warn!` ada di `ui/logo.rs`, tapi filter defaultnya `error` — jadi
+baris `warn` itu tidak pernah muncul, dan tidak pernah ada yang sadar karena
+tidak ada yang membacanya.
+
+Kalau nanti butuh level verbose untuk development, tambahkan levelnya di
+`logging.rs` dan filternya di sana juga. Membawa crate kedua berarti log terpecah
+di dua tempat dengan dua format.
+
 ## 1. Log aplikasi
 
 ```
@@ -133,7 +151,7 @@ compositor: hyprland
 started   : 2026-10-02T18:31:02Z
 
 [18:31:02] preflight  ok
-[18:31:02] backup     ok -> ~/.local/state/rakuos-shell-picker/backups/20261002T183102Z-hyprland-noctalia
+[18:31:02] backup     ok -> ~/.local/share/backups/rakuos-shell-picker/20261002-hyprland-noctalia
 [18:31:03] stop       ok (pid 4821, noctalia)
 [18:31:03] start      FAILED
   cmd: dms run

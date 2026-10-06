@@ -54,21 +54,29 @@ pub struct Backup {
     pub manifest: Manifest,
 }
 
-/// How many names to try before giving up: `name`, then `name-2` up to
-/// `name-N`.
+/// How many names to try before giving up when picking a scratch directory.
 ///
 /// Bounded so a pathological parent directory cannot spin here forever. Five
-/// hundred switches inside one millisecond is not a thing that happens; a
-/// full disk or a permissions problem is, and that surfaces as the error from
-/// `create_dir` on the first attempt rather than as a wrong name.
-const BACKUP_NAME_ATTEMPTS: u32 = 500;
+/// hundred collisions is not a thing that happens; a full disk or a permissions
+/// problem is, and that surfaces as the error from `create_dir` on the first
+/// attempt rather than as a wrong name.
+const SCRATCH_ATTEMPTS: u32 = 500;
 
 impl Backup {
-    /// Copy `sources` into a fresh directory under `parent`.
+    /// Copy `sources` under `parent`, replacing whatever `name` held.
     ///
     /// `home` is the boundary: anything outside it is refused rather than
     /// copied, so a future registry entry pointing at a system path cannot end
     /// up being restored into one from a user-writable directory.
+    ///
+    /// The name is a date, so a second switch on the same day collides with the
+    /// first. That collision is answered by replacing rather than by stepping to
+    /// a suffix: one backup per day is the whole point of dating them by day.
+    /// Replacing a backup is only allowed while the copy it holds has already
+    /// been re-read and matched against its own manifest, so the order here is
+    /// fixed — build the new one in a scratch directory, verify it there, and
+    /// only then move the old one aside. A failure at any point before the last
+    /// rename leaves the previous backup exactly where it was.
     pub fn create(parent: &Path, name: &str, sources: &[PathBuf], home: &Path) -> Result<Self> {
         if !name
             .chars()
@@ -81,57 +89,35 @@ impl Backup {
         fs::create_dir_all(parent)
             .with_context(|| format!("creating backup root {}", parent.display()))?;
 
-        // A name derived from the clock is unique only to the millisecond, and two
-        // switches really can land inside the same one: an immediate retry after a
-        // switch that failed partway, or a second click. `create_dir` is atomic —
-        // it fails if the directory is already there — so exactly one attempt can
-        // win and no two backups can ever share a directory. Step to the next
-        // suffix on a clash instead of overwriting, which is the one outcome rule
-        // 2 of SAFETY.md forbids.
-        let root = (1..=BACKUP_NAME_ATTEMPTS)
-            .find_map(|attempt| {
-                let candidate = if attempt == 1 {
-                    parent.join(name)
-                } else {
-                    parent.join(format!("{name}-{attempt}"))
-                };
-                match fs::create_dir(&candidate) {
-                    Ok(()) => Some(Ok(candidate)),
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
-                    Err(e) => Some(Err(e).with_context(|| {
-                        format!("creating backup directory {}", candidate.display())
-                    })),
-                }
-            })
-            .unwrap_or_else(|| {
-                Err(anyhow!(
-                    "no free backup directory name between {name:?} and \
-                     {name}-{BACKUP_NAME_ATTEMPTS}: this switch will not start rather \
-                     than touch a backup that already exists"
-                ))
-            })?;
+        let root = parent.join(name);
+        recover_interrupted_replace(parent, name, &root)?;
 
-        let mut manifest = Manifest::default();
-        for source in sources {
-            let relative = relative_to_home(source, home)?;
-            let key = relative.to_string_lossy().into_owned();
-            if !source.exists() {
-                manifest.absent.push(key);
-                continue;
+        let scratch = scratch_dir(parent, name)?;
+        let manifest = match fill(&scratch, sources, home) {
+            Ok(manifest) => manifest,
+            Err(err) => {
+                let _ = fs::remove_dir_all(&scratch);
+                return Err(err);
             }
-            let tree = copy_tree(source, &root.join("home").join(relative))?;
-            manifest.trees.insert(key, tree);
+        };
+        // Read back before anything of the user's is at risk. If this fails the
+        // previous backup is still in place and untouched.
+        let built = Backup {
+            root: scratch.clone(),
+            manifest: manifest.clone(),
+        };
+        if let Err(err) = built.verify() {
+            let _ = fs::remove_dir_all(&scratch);
+            return Err(err);
+        }
+        drop(built);
+
+        if let Err(err) = replace(&scratch, &root) {
+            let _ = fs::remove_dir_all(&scratch);
+            return Err(err);
         }
 
-        fs::write(
-            root.join("manifest.toml"),
-            toml::to_string_pretty(&manifest)?,
-        )
-        .context("writing the backup manifest")?;
-
-        let backup = Backup { root, manifest };
-        backup.verify()?;
-        Ok(backup)
+        Ok(Backup { root, manifest })
     }
 
     /// Re-check every copied byte against what the manifest says.
@@ -189,7 +175,7 @@ impl Backup {
         for (key, tree) in &self.manifest.trees {
             let from = self.root.join("home").join(key);
             let to = home.join(key);
-            let written = copy_tree(&from, &to)?;
+            let written = copy_tree(&from, &to, false)?;
             if written.entries != tree.entries {
                 bail!("restoring {key} did not reproduce the backup");
             }
@@ -218,8 +204,138 @@ fn relative_to_home(path: &Path, home: &Path) -> Result<PathBuf> {
     })
 }
 
+/// Copy every source into `dir`, then write the manifest that describes them.
+fn fill(dir: &Path, sources: &[PathBuf], home: &Path) -> Result<Manifest> {
+    let mut manifest = Manifest::default();
+    for source in sources {
+        let relative = relative_to_home(source, home)?;
+        let key = relative.to_string_lossy().into_owned();
+        if !source.exists() {
+            manifest.absent.push(key);
+            continue;
+        }
+        let tree = copy_tree(source, &dir.join("home").join(relative), true)?;
+        manifest.trees.insert(key, tree);
+    }
+
+    fs::write(
+        dir.join("manifest.toml"),
+        toml::to_string_pretty(&manifest)?,
+    )
+    .context("writing the backup manifest")?;
+    Ok(manifest)
+}
+
+/// A directory of its own for the copy being built, hidden so that a backup
+/// which is only half written can never be mistaken for one that finished.
+///
+/// `create_dir` is atomic, so two attempts cannot pick the same name.
+fn scratch_dir(parent: &Path, name: &str) -> Result<PathBuf> {
+    for attempt in 1..=SCRATCH_ATTEMPTS {
+        let candidate = if attempt == 1 {
+            parent.join(format!(".{name}.new"))
+        } else {
+            parent.join(format!(".{name}.new-{attempt}"))
+        };
+        match fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(anyhow!(e).context(format!(
+                    "creating a scratch directory beside {}",
+                    parent.display()
+                )))
+            }
+        }
+    }
+    Err(anyhow!(
+        "no free scratch directory name under {} after {SCRATCH_ATTEMPTS} attempts; \
+         this switch will not start rather than touch a backup that already exists",
+        parent.display()
+    ))
+}
+
+/// Move `scratch` to `root`, keeping one of the two whichever way it ends.
+///
+/// `rename` will not replace a non-empty directory, so the old copy is moved to
+/// a hidden name first and removed only once the new one is in place. The
+/// failure path puts the old one back, because "your backup is gone" is the one
+/// outcome worse than "your switch did not start".
+fn replace(scratch: &Path, root: &Path) -> Result<()> {
+    if !root.exists() {
+        return fs::rename(scratch, root)
+            .with_context(|| format!("moving the new backup to {}", root.display()));
+    }
+
+    let stale = aside_name(root, "old");
+    let _ = fs::remove_dir_all(&stale);
+    fs::rename(root, &stale)
+        .with_context(|| format!("moving the previous backup {} aside", root.display()))?;
+
+    match fs::rename(scratch, root) {
+        Ok(()) => {
+            let _ = fs::remove_dir_all(&stale);
+            Ok(())
+        }
+        Err(err) => {
+            let _ = fs::rename(&stale, root);
+            Err(anyhow!(err).context(format!(
+                "the new backup could not take the place of {}, so it was left as it was",
+                root.display()
+            )))
+        }
+    }
+}
+
+/// A hidden name beside `root`, used for the copy being replaced.
+fn aside_name(root: &Path, purpose: &str) -> PathBuf {
+    let parent = root.parent().unwrap_or_else(|| Path::new("."));
+    let name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    parent.join(format!(".{name}.{purpose}-{}", std::process::id()))
+}
+
+/// Put back a backup that a kill caught between the two renames of [`replace`].
+///
+/// That window holds a hidden directory holding the previous copy and no
+/// `root` at all. Left alone it would sit there forever while the day looked
+/// like it had no backup, so the name is claimed again before this one is
+/// built. If `root` is already there the leftover is redundant.
+fn recover_interrupted_replace(parent: &Path, name: &str, root: &Path) -> Result<()> {
+    let prefix = format!(".{name}.old-");
+    let Ok(entries) = fs::read_dir(parent) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(text) = file_name.to_str() else {
+            continue;
+        };
+        if !text.starts_with(&prefix) || !entry.path().is_dir() {
+            continue;
+        }
+        if root.exists() {
+            let _ = fs::remove_dir_all(entry.path());
+        } else {
+            fs::rename(entry.path(), root)
+                .with_context(|| format!("recovering the interrupted backup {}", root.display()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Copy one tree, returning what was found on the way through.
-fn copy_tree(from: &Path, to: &Path) -> Result<Tree> {
+///
+/// `skip_asides` drops the rollback copies [`crate::apply`] renames aside, which
+/// are this tool's own litter rather than the user's configuration. A backup
+/// must not carry them: they are already the same bytes as the file beside them,
+/// and every generation that survived used to be copied into the next backup,
+/// which is how 214 of them ended up inside four. Restoring passes `false`,
+/// because a backup written before this filter existed has to reproduce its own
+/// manifest exactly or it reports itself as broken.
+fn copy_tree(from: &Path, to: &Path, skip_asides: bool) -> Result<Tree> {
     let mut tree = Tree::default();
     if from.is_symlink() {
         // A symlinked config directory is followed for reading but recorded as
@@ -250,7 +366,7 @@ fn copy_tree(from: &Path, to: &Path) -> Result<Tree> {
     if from.is_file() {
         return copy_single_file(from, to, &mut tree);
     }
-    walk_into(from, from, to, &mut tree).map(|()| tree)
+    walk_into(from, from, to, skip_asides, &mut tree).map(|()| tree)
 }
 
 /// Copy one file, recorded as a single entry under an empty relative key.
@@ -274,12 +390,48 @@ fn copy_single_file(from: &Path, to: &Path, tree: &mut Tree) -> Result<Tree> {
     Ok(tree.clone())
 }
 
+/// Is `name` a rollback copy this tool renamed aside, not the user's own file?
+///
+/// [`crate::apply`] renames whatever it is about to replace to
+/// `.{basename}.pre-{target}-{YYYYMMDD}-{HHMMSS}` next to where it lived. That
+/// exact shape is matched — leading dot, `.pre-`, then an eight digit date and a
+/// six digit time — so a file of the user's that merely happens to contain
+/// `pre-` is never skipped, and neither is a half-written name with no stamp.
+fn is_aside(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix('.') else {
+        return false;
+    };
+    let Some((_, tail)) = rest.split_once(".pre-") else {
+        return false;
+    };
+    let mut outer = tail.rsplitn(2, '-');
+    let (Some(time), Some(body)) = (outer.next(), outer.next()) else {
+        return false;
+    };
+    let mut inner = body.rsplitn(2, '-');
+    let (Some(date), Some(target)) = (inner.next(), inner.next()) else {
+        return false;
+    };
+    !target.is_empty() && digits(date, 8) && digits(time, 6)
+}
+
+/// Exactly `len` ASCII digits and nothing else.
+fn digits(text: &str, len: usize) -> bool {
+    text.len() == len && text.bytes().all(|b| b.is_ascii_digit())
+}
+
 /// Recursive copy that fills in `tree`.
 ///
 /// `root` is the tree being copied, kept so entries can be keyed by their path
 /// relative to it. Keying by bare file name would collide across directories and
 /// make the manifest disagree with what `walk` reads back.
-fn walk_into(root: &Path, from: &Path, to: &Path, tree: &mut Tree) -> Result<()> {
+fn walk_into(
+    root: &Path,
+    from: &Path,
+    to: &Path,
+    skip_asides: bool,
+    tree: &mut Tree,
+) -> Result<()> {
     fs::create_dir_all(to).with_context(|| format!("creating {}", to.display()))?;
     let meta = fs::symlink_metadata(from)?;
     if meta.is_symlink() {
@@ -294,6 +446,9 @@ fn walk_into(root: &Path, from: &Path, to: &Path, tree: &mut Tree) -> Result<()>
     for entry in fs::read_dir(from).with_context(|| format!("reading {}", from.display()))? {
         let entry = entry?;
         let name = entry.file_name();
+        if skip_asides && is_aside(&name.to_string_lossy()) {
+            continue;
+        }
         let child_from = from.join(&name);
         let child_to = to.join(&name);
         let meta = fs::symlink_metadata(&child_from)?;
@@ -303,7 +458,7 @@ fn walk_into(root: &Path, from: &Path, to: &Path, tree: &mut Tree) -> Result<()>
                 .with_context(|| format!("creating {}", child_to.display()))?;
             tree.entries
                 .insert(relative_key(root, &child_from), Entry::Dir);
-            walk_into(root, &child_from, &child_to, tree)?;
+            walk_into(root, &child_from, &child_to, skip_asides, tree)?;
         } else if meta.is_symlink() {
             let target = fs::read_link(&child_from)?;
             let _ = fs::remove_file(&child_to);
@@ -382,409 +537,5 @@ fn relative_key(root: &Path, path: &Path) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sandbox(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join("rakuos-shell-picker-tests")
-            .join("backup")
-            .join(name);
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn write(path: &Path, contents: &str) {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, contents).unwrap();
-    }
-
-    #[test]
-    fn a_backup_of_a_single_file_round_trips() {
-        // Noctalia's launcher is a file, not a directory, and a switch replaces it.
-        // Backup, verify and restore all have to cope with a tree that holds one
-        // file under an empty key. This was found by running the backup against a
-        // real setup: every unit test used a directory, so `read_dir` on the launcher
-        // failed with "Not a directory" and no test had caught it.
-        let root = sandbox("single-file");
-        let home = root.join("home");
-        let launcher = home.join(".local/share/applications/dev.noctalia.Noctalia.desktop");
-        write(&launcher, "[Desktop Entry]\nName=Noctalia\nExec=noctalia\n");
-
-        let backup = Backup::create(
-            &root.join("backups"),
-            "launcher",
-            std::slice::from_ref(&launcher),
-            &home,
-        )
-        .expect("a single file is a valid backup source");
-        backup.verify().expect("verify must read a file back");
-
-        let key = ".local/share/applications/dev.noctalia.Noctalia.desktop";
-        let tree = &backup.manifest.trees[key];
-        assert_eq!(tree.files, 1);
-        assert_eq!(tree.bytes, 44, "the byte count is the file's own");
-        assert!(
-            tree.entries.contains_key(""),
-            "recorded under the empty key"
-        );
-
-        // And it comes back: replace it with something else, restore, compare.
-        write(&launcher, "clobbered");
-        let files = backup
-            .restore(&home)
-            .expect("restore must put a single file back");
-        assert_eq!(files, 1);
-        assert_eq!(
-            std::fs::read_to_string(&launcher).unwrap(),
-            "[Desktop Entry]\nName=Noctalia\nExec=noctalia\n"
-        );
-    }
-
-    #[test]
-    fn a_symlinked_file_is_recorded_as_a_link() {
-        // The launcher can be a symlink to something in /usr/share, which is what a
-        // package install leaves behind. Restoring has to reproduce the link rather
-        // than a copy of its target, or the user silently loses the link.
-        let root = sandbox("symlinked-file");
-        let home = root.join("home");
-        let target = root.join("elsewhere.desktop");
-        write(&target, "[Desktop Entry]\n");
-        let launcher = home.join(".local/share/applications/dev.noctalia.Noctalia.desktop");
-        fs::create_dir_all(launcher.parent().unwrap()).unwrap();
-        std::os::unix::fs::symlink(&target, &launcher).unwrap();
-
-        let backup = Backup::create(
-            &root.join("backups"),
-            "linked",
-            std::slice::from_ref(&launcher),
-            &home,
-        )
-        .expect("a symlinked file is a valid source");
-        backup
-            .verify()
-            .expect("verify must follow the recorded link");
-
-        let key = ".local/share/applications/dev.noctalia.Noctalia.desktop";
-        match backup.manifest.trees[key].entries.get("") {
-            Some(Entry::Symlink { target: recorded }) => {
-                assert_eq!(recorded, &target, "recorded as a link, not a copy");
-            }
-            other => panic!("expected a symlink entry, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn an_exhausted_name_space_refuses_rather_than_guessing() {
-        // The loop is bounded, so it has to end in a refusal that says why. Silently
-        // reusing a name past the bound would be the one outcome that breaks rule 2.
-        let dir = sandbox("exhausted");
-        let home = dir.join("home");
-        fs::create_dir_all(&home).unwrap();
-        let backups = dir.join("backups");
-        for attempt in 1..=BACKUP_NAME_ATTEMPTS {
-            Backup::create(&backups, "s", &[], &home)
-                .unwrap_or_else(|e| panic!("attempt {attempt} should have been free: {e}"));
-        }
-
-        let err = Backup::create(&backups, "s", &[], &home)
-            .expect_err("with every name taken there is nowhere safe to go");
-        let message = format!("{err:#}");
-        assert!(
-            message.contains("no free backup directory name"),
-            "the refusal has to explain itself: {message}"
-        );
-        assert!(
-            backups.join("s").is_dir(),
-            "the oldest backup must still be there"
-        );
-    }
-
-    #[test]
-    fn a_backup_copies_the_whole_tree() {
-        let root = sandbox("whole-tree");
-        let home = root.join("home");
-        write(&home.join(".config/noctalia/settings.json"), "{\"a\":1}");
-        write(&home.join(".config/noctalia/themes/dark/gtk.css"), "dark");
-
-        let backup = Backup::create(
-            &root.join("backups"),
-            "1234-hyprland-noctalia",
-            &[home.join(".config/noctalia")],
-            &home,
-        )
-        .unwrap();
-
-        assert_eq!(backup.file_count(), 2);
-        assert_eq!(backup.manifest.absent, Vec::<String>::new());
-        assert!(backup.manifest.trees.contains_key(".config/noctalia"));
-    }
-
-    #[test]
-    fn a_backup_never_writes_into_a_directory_that_is_already_there() {
-        // What SAFETY.md rule 2 asks for is that two backups never share a
-        // directory. Refusing a reuse delivered that, but it also failed the second
-        // switch outright whenever the name collided — and a clock-derived name
-        // collides whenever two switches land in the same millisecond. So a reuse is
-        // resolved by stepping to a fresh name, and what is asserted here is the
-        // invariant rather than the refusal.
-        let root = sandbox("reuse");
-        let home = root.join("home");
-        write(&home.join(".config/noctalia/a"), "a");
-        let sources = [home.join(".config/noctalia")];
-
-        let first = Backup::create(&root.join("backups"), "same-name", &sources, &home).unwrap();
-        let second = Backup::create(&root.join("backups"), "same-name", &sources, &home)
-            .expect("a second switch steps aside rather than failing");
-
-        assert_ne!(
-            first.root, second.root,
-            "a second switch must not land on the first"
-        );
-        assert_eq!(first.file_count(), second.file_count());
-        assert_eq!(
-            std::fs::read_to_string(first.root.join("home/.config/noctalia/a")).unwrap(),
-            "a",
-            "the first backup must still hold what it copied"
-        );
-        assert_eq!(
-            std::fs::read_to_string(second.root.join("home/.config/noctalia/a")).unwrap(),
-            "a",
-            "and the second must be a real copy, not a move"
-        );
-    }
-
-    #[test]
-    fn a_missing_source_is_recorded_rather_than_failing() {
-        let root = sandbox("missing");
-        let home = root.join("home");
-        fs::create_dir_all(&home).unwrap();
-
-        // A shell that was never opened has no config; that is not a failure.
-        let backup = Backup::create(
-            &root.join("backups"),
-            "1-hyprland-dms",
-            &[home.join(".config/DankMaterialShell")],
-            &home,
-        )
-        .unwrap();
-
-        assert_eq!(backup.file_count(), 0);
-        assert_eq!(backup.manifest.absent, [".config/DankMaterialShell"]);
-    }
-
-    #[test]
-    fn verification_catches_a_damaged_copy() {
-        let root = sandbox("damaged");
-        let home = root.join("home");
-        write(&home.join(".config/noctalia/settings.json"), "{\"a\":1}");
-        let backup = Backup::create(
-            &root.join("backups"),
-            "1-hyprland-noctalia",
-            &[home.join(".config/noctalia")],
-            &home,
-        )
-        .unwrap();
-
-        // Something eats the copy after it was taken.
-        fs::write(
-            backup.root.join("home/.config/noctalia/settings.json"),
-            "{\"a\":",
-        )
-        .unwrap();
-
-        let err = backup.verify().expect_err("a truncated copy must not pass");
-        let text = format!("{err:#}");
-        assert!(text.contains("does not match its manifest"), "{text}");
-        // The complaint has to point at the file that went wrong.
-        assert!(text.contains("settings.json"), "{text}");
-    }
-
-    #[test]
-    fn verification_catches_a_file_that_vanished() {
-        let root = sandbox("vanished");
-        let home = root.join("home");
-        write(&home.join(".config/noctalia/keep.json"), "{}");
-        write(&home.join(".config/noctalia/gone.json"), "{}");
-        let config = home.join(".config/noctalia");
-        let backup = Backup::create(
-            &root.join("backups"),
-            "1-hyprland-noctalia",
-            std::slice::from_ref(&config),
-            &home,
-        )
-        .unwrap();
-
-        fs::remove_file(backup.root.join("home/.config/noctalia/gone.json")).unwrap();
-
-        let err = backup.verify().expect_err("a missing copy must not pass");
-        let text = format!("{err:#}");
-        assert!(text.contains("gone.json"), "{text}");
-    }
-
-    #[test]
-    fn restore_puts_the_original_back() {
-        let root = sandbox("restore");
-        let home = root.join("home");
-        let config = home.join(".config/noctalia");
-        write(&config.join("settings.json"), "{\"a\":1}");
-        let backup = Backup::create(
-            &root.join("backups"),
-            "1-hyprland-noctalia",
-            std::slice::from_ref(&config),
-            &home,
-        )
-        .unwrap();
-
-        // The switch replaces the config, then fails and has to undo it.
-        fs::remove_dir_all(&config).unwrap();
-        write(&config.join("settings.json"), "{\"a\":999}");
-
-        let restored = backup.restore(&home).unwrap();
-        assert_eq!(restored, 1);
-        assert_eq!(
-            fs::read_to_string(config.join("settings.json")).unwrap(),
-            "{\"a\":1}"
-        );
-    }
-
-    #[test]
-    fn a_path_outside_home_is_refused() {
-        let root = sandbox("outside");
-        let home = root.join("home");
-        fs::create_dir_all(&home).unwrap();
-
-        let err = Backup::create(
-            &root.join("backups"),
-            "1-hyprland-noctalia",
-            &[PathBuf::from("/etc")],
-            &home,
-        )
-        .expect_err("system paths must be refused");
-        assert!(format!("{err:#}").contains("outside"), "{err:#}");
-    }
-
-    #[test]
-    fn a_relative_path_is_refused() {
-        let root = sandbox("relative");
-        let home = root.join("home");
-        fs::create_dir_all(&home).unwrap();
-
-        let err = Backup::create(
-            &root.join("backups"),
-            "1-x-y",
-            &[PathBuf::from(".config")],
-            &home,
-        )
-        .expect_err("relative paths must be refused");
-        assert!(format!("{err:#}").contains("not an absolute"), "{err:#}");
-    }
-
-    #[test]
-    fn a_directory_name_with_a_path_is_refused() {
-        let root = sandbox("sneaky-name");
-        let home = root.join("home");
-        fs::create_dir_all(&home).unwrap();
-
-        let err = Backup::create(&root.join("backups"), "../escape", &[], &home)
-            .expect_err("a name must not be able to escape the backup directory");
-        assert!(
-            format!("{err:#}").contains("refusing a backup directory"),
-            "{err:#}"
-        );
-    }
-
-    #[test]
-    fn symlinks_survive_a_round_trip() {
-        let root = sandbox("symlinks");
-        let home = root.join("home");
-        let config = home.join(".config/noctalia");
-        write(&config.join("real.json"), "{}");
-        symlink("real.json", config.join("link.json")).unwrap();
-
-        let backup = Backup::create(
-            &root.join("backups"),
-            "1-hyprland-noctalia",
-            std::slice::from_ref(&config),
-            &home,
-        )
-        .unwrap();
-        assert!(backup.verify().is_ok());
-
-        // Restoring must not turn a symlink into a copy of its target.
-        fs::remove_file(config.join("link.json")).unwrap();
-        backup.restore(&home).unwrap();
-        assert!(config.join("link.json").is_symlink());
-        assert_eq!(
-            fs::read_link(config.join("link.json")).unwrap(),
-            PathBuf::from("real.json")
-        );
-    }
-
-    /// Copies the real user config. Ignored so `cargo test` never touches it by
-    /// accident; run with `cargo test -- --include-ignored`.
-    ///
-    /// This is the test that found the single-file bug: every unit test here used
-    /// a directory as its source, and Noctalia's launcher is a file, so nothing
-    /// covered it until this ran against an actual desktop..
-    ///
-    /// Restoring is deliberately not part of this: writing over a live desktop
-    /// is not something a test should do, even into its own backup.
-    #[test]
-    #[ignore = "copies the real user config"]
-    fn the_real_noctalia_setup_backs_up_and_verifies() {
-        use crate::compositor::hyprland::shells::noctalia::SHELL as NOCTALIA;
-
-        let home = PathBuf::from(std::env::var_os("HOME").expect("HOME"));
-        let dest = std::env::temp_dir().join("rakuos-shell-picker-live-backup");
-        let _ = fs::remove_dir_all(&dest);
-
-        let sources =
-            crate::switch::backup_sources(&home, &crate::compositor::HYPRLAND, Some(&NOCTALIA));
-        let backup = Backup::create(&dest, "live-check", &sources, &home).unwrap();
-
-        println!(
-            "backed up {} files across {} trees, {} recorded absent",
-            backup.file_count(),
-            backup.manifest.trees.len(),
-            backup.manifest.absent.len()
-        );
-        for key in backup.manifest.trees.keys() {
-            let tree = &backup.manifest.trees[key];
-            println!("  {key}: {} files, {} bytes", tree.files, tree.bytes);
-        }
-        for key in &backup.manifest.absent {
-            println!("  {key}: absent");
-        }
-
-        // A real setup is hundreds of files; a handful means the walk stopped
-        // early on something it should not have.
-        assert!(
-            backup.file_count() > 100,
-            "only {} files copied, expected the whole setup",
-            backup.file_count()
-        );
-        backup.verify().expect("the copy must read back clean");
-
-        let _ = fs::remove_dir_all(&dest);
-    }
-
-    #[test]
-    fn the_manifest_is_written_next_to_the_copy() {
-        let root = sandbox("manifest");
-        let home = root.join("home");
-        write(&home.join(".config/noctalia/a"), "a");
-        let backup = Backup::create(
-            &root.join("backups"),
-            "1-hyprland-noctalia",
-            &[home.join(".config/noctalia")],
-            &home,
-        )
-        .unwrap();
-
-        let raw = fs::read_to_string(backup.root.join("manifest.toml")).unwrap();
-        let parsed: Manifest = toml::from_str(&raw).unwrap();
-        assert_eq!(parsed, backup.manifest);
-    }
-}
+#[path = "tests/backup.rs"]
+mod tests;

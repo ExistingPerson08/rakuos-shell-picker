@@ -1,9 +1,10 @@
 //! Caelestia Shell, a quickshell shell that no repository carries.
 //!
-//! What is the same wherever it runs: it has no package at all, so there is nothing
-//! for the picker to install, and it runs on `quickshell` — the same runtime
-//! `noctalia-qs` installs — which is why `Shell::installed` will not accept a live
-//! `quickshell` process as proof that Caelestia is set up.
+//! - **install**: none. It has no package at all, so there is nothing for the
+//!   picker to install and nothing to uninstall afterwards, and that is one of
+//!   the reasons the card is refused. It runs on `quickshell` — the same runtime
+//!   `noctalia-qs` installs — which is why `Shell::installed` will not accept a
+//!   live `quickshell` process as proof that Caelestia is set up.
 //!
 //! It has no official Niri port: upstream ships a Hyprland shell, and the Niri
 //! versions that exist are third party forks. That was why it was left out of the
@@ -26,6 +27,7 @@ pub const IDENTITY: Identity = Identity {
     binary: "caelestia",
     start_argv: &["caelestia", "shell", "-d"],
     install_plan: None,
+    uninstall_plan: None,
     companion_systemd_user_units: &[],
     logo: Some("caelestia.svg"),
 };
