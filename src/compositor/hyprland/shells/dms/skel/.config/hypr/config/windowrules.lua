@@ -61,7 +61,6 @@ hl.window_rule({ match = { class = "^(.*[Cc]alc.*)$" }, float = true, size = { "
 hl.window_rule({ match = { class = "^(org\\.kde\\.keditfiletype)$" }, float = true })
 hl.window_rule({ match = { class = "^(org\\.kde\\.ark)$" }, size = { "max(monitor_w, monitor_h)*0.40", "min(monitor_w, monitor_h)*0.40" } })
 hl.window_rule({ match = { class = "^(.*satty.*)$", title = "^(Satty)$" }, min_size = { "max(monitor_w, monitor_h)*0.35", "min(monitor_w, monitor_h)*0.35" }, float = true })
-hl.window_rule({ match = { class = "^(dev\\.)?(noctalia\\.Noctalia(\\.Settings)?)$" }, float = true, size = { "monitor_w*0.70", "monitor_h*0.70" } })
 -- Shell picker: window persegi fixed (GUI_LAYOUT.md rasio ~1:1, ~800x800).
 -- Harus float karena WM tiled akan memaksa ukuran kolom dan merusak rasio persegi.
 hl.window_rule({ match = { class = "^(org\\.rakuos\\.ShellPicker)$" }, float = true, size = { "806", "806" } })
@@ -122,11 +121,14 @@ hl.window_rule({
 hl.layer_rule({ match = { namespace = "hyprpicker" }, animation = "fade" })
 hl.layer_rule({ match = { namespace = "selection" }, animation = "fade" })
 
--- Noctalia layers (blur untuk bar/panel/notification/dock)
+-- DMS layers (blur untuk bar/panel/notification/dock).
+-- Noctalia pakai namespace "noctalia-*"; DMS memakai "dms:<permukaan>". Daftarnya
+-- diterjemahkan satu-per-satu dari rule Noctalia (bar, notification, dock, panel,
+-- osd) supaya permukaan shell tetap sama-sama di-blur.
 hl.layer_rule({
-    name = "noctalia",
+    name = "dms",
     match = {
-        namespace = "^noctalia-(bar-.+|notification|dock|panel|attached-panel|osd)$",
+        namespace = "^dms:(bar|osd|dankisland|dock|control-center|dash|spotlight|power-menu|app-launcher|notification-popup|notification-center-popout|notification-center-modal)(:.+)?$",
     },
     ignore_alpha = 0.5,
     blur = true,

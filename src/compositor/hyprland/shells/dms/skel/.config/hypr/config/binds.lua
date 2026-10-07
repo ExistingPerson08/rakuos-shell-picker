@@ -10,20 +10,20 @@ local launchPrefix = "uwsm app -- " -- if you are not using UWSM, make this empt
 -- ───────────────────────────────────────────
 hl.bind(M .. " + SHIFT + R", hl.dsp.exec_cmd("hyprctl reload && notify-send -u low 'Hyprland reloaded'"), { description = "Reload Hyprland config" })
 hl.bind(M .. " + Q", hl.dsp.window.close(), { description = "Close active window" })
-hl.bind(M .. " + Escape", hl.dsp.exec_cmd("noctalia msg panel-toggle session"), { description = "Session menu" })
-hl.bind(M .. " + CTRL + L", hl.dsp.exec_cmd("noctalia msg session lock"), { description = "Lock screen" })
+hl.bind(M .. " + Escape", hl.dsp.exec_cmd("dms ipc call powermenu toggle"), { description = "Session menu" })
+hl.bind(M .. " + CTRL + L", hl.dsp.exec_cmd("dms ipc call lock lock"), { description = "Lock screen" })
 hl.bind("CTRL + SHIFT + Escape", hl.dsp.exec_cmd(launchPrefix .. TERMINAL .. " --title=btop-monitor -e btop"), { description = "System monitor (btop, floating)" })
 
 -- ───────────────────────────────────────────
--- Noctalia Shell
+-- DMS Shell
 -- ───────────────────────────────────────────
-hl.bind(M .. " + Space", hl.dsp.exec_cmd("noctalia msg panel-toggle launcher"), { description = "App launcher" })
-hl.bind(M .. " + ALT + Space",hl.dsp.exec_cmd("noctalia msg panel-toggle control-center"),{ description = "Control center" })
-hl.bind(M .. " + CTRL + Space", hl.dsp.exec_cmd("noctalia msg settings-toggle"), { description = "Settings toggle" })
-hl.bind(M .. " + CTRL + W", hl.dsp.exec_cmd("noctalia msg panel-toggle wallpaper"), { description = "Wallpaper picker" })
-hl.bind(M .. " + CTRL + period", hl.dsp.exec_cmd("noctalia msg notification-clear-history"),{ description = "Clear notifications" })
-hl.bind(M .. " + CTRL + comma", hl.dsp.exec_cmd("noctalia msg clipboard-clear"), { description = "Clear clipboard" })
-hl.bind(M .. " + CTRL + C", hl.dsp.exec_cmd("noctalia msg caffeine-toggle"), { description = "Toggle caffeine" })
+hl.bind(M .. " + Space", hl.dsp.exec_cmd("dms ipc call spotlight toggle"), { description = "App launcher" })
+hl.bind(M .. " + ALT + Space",hl.dsp.exec_cmd("dms ipc call control-center toggle"),{ description = "Control center" })
+hl.bind(M .. " + CTRL + Space", hl.dsp.exec_cmd("dms ipc call settings toggle"), { description = "Settings toggle" })
+hl.bind(M .. " + CTRL + W", hl.dsp.exec_cmd("dms ipc call dash toggle wallpaper"), { description = "Wallpaper picker" })
+hl.bind(M .. " + CTRL + period", hl.dsp.exec_cmd("dms ipc call notifications clearAll"),{ description = "Clear notifications" })
+hl.bind(M .. " + CTRL + comma", hl.dsp.exec_cmd("dms clipboard clear"), { description = "Clear clipboard" })
+hl.bind(M .. " + CTRL + C", hl.dsp.exec_cmd("dms ipc call inhibit toggle"), { description = "Toggle caffeine" })
 hl.bind(M .. " + ALT + P", hl.dsp.exec_cmd("hyprpicker -a -n"), { description = "Color picker (hyprpicker)" })
 
 -- ───────────────────────────────────────────
@@ -60,7 +60,11 @@ end, { description = "Toggle floating + pinned" })
 -- ───────────────────────────────────────────
 -- Layout Controls
 -- ───────────────────────────────────────────
-hl.bind(M .. " + ALT + W", hl.dsp.exec_cmd("noctalia msg panel-toggle mindset/hypr-layouts:panel"), { description = "Switch layout (panel)" })
+-- SUPER + ALT + W used to open the Noctalia plugin panel
+-- "mindset/hypr-layouts:panel" (per-workspace layout picker). DMS ships no
+-- equivalent surface, so the shortcut is left unbound rather than pointed at a
+-- key that does something else. layouts/fair.lua and layouts/deck.lua are still
+-- loaded by hyprland.lua; only the picker is gone.
 -- Window Cycling
 hl.bind("ALT + Tab", hl.dsp.window.cycle_next({ tiled = true }), { description = "Cycle windows" })
 -- dwindle
@@ -92,17 +96,17 @@ hl.bind(M .. " + SHIFT + S", hl.dsp.window.move({ workspace = "special:magic" })
 hl.bind(M .. " + SHIFT + CTRL + S",	hl.dsp.window.move({ workspace = "previous" }), { description = "Move window out of special workspace" })
 
 -- ───────────────────────────────────────────
--- Media Keys (via PipeWire — Noctalia)
+-- Media Keys (via DMS)
 -- ───────────────────────────────────────────
-hl.bind("XF86AudioRaiseVolume",	hl.dsp.exec_cmd("noctalia msg volume-up"), { locked = true, repeating = true, description = "Volume up" })
-hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("noctalia msg volume-down"), { locked = true, repeating = true, description = "Volume down" })
-hl.bind("XF86AudioMute", hl.dsp.exec_cmd("noctalia msg volume-mute"), { locked = true, description = "Mute audio" })
-hl.bind("XF86AudioMicMute", hl.dsp.exec_cmd("noctalia msg mic-mute"), { locked = true, description = "Mute mic" })
-hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("noctalia msg media toggle"), { locked = true, description = "Play/pause" })
-hl.bind("XF86AudioNext", hl.dsp.exec_cmd("noctalia msg media next"), { locked = true, description = "Next track" })
-hl.bind("XF86AudioPrev", hl.dsp.exec_cmd("noctalia msg media previous"), { locked = true, description = "Previous track" })
-hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd("noctalia msg brightness-up"), { locked = true, repeating = true, description = "Brightness up" })
-hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("noctalia msg brightness-down"), { locked = true, repeating = true, description = "Brightness down" })
+hl.bind("XF86AudioRaiseVolume",	hl.dsp.exec_cmd("dms ipc call audio increment 3"), { locked = true, repeating = true, description = "Volume up" })
+hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("dms ipc call audio decrement 3"), { locked = true, repeating = true, description = "Volume down" })
+hl.bind("XF86AudioMute", hl.dsp.exec_cmd("dms ipc call audio mute"), { locked = true, description = "Mute audio" })
+hl.bind("XF86AudioMicMute", hl.dsp.exec_cmd("dms ipc call audio micmute"), { locked = true, description = "Mute mic" })
+hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("dms ipc call mpris playPause"), { locked = true, description = "Play/pause" })
+hl.bind("XF86AudioNext", hl.dsp.exec_cmd("dms ipc call mpris next"), { locked = true, description = "Next track" })
+hl.bind("XF86AudioPrev", hl.dsp.exec_cmd("dms ipc call mpris previous"), { locked = true, description = "Previous track" })
+hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd([[dms ipc call brightness increment 5 ""]]), { locked = true, repeating = true, description = "Brightness up" })
+hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd([[dms ipc call brightness decrement 5 ""]]), { locked = true, repeating = true, description = "Brightness down" })
 hl.bind("XF86Sleep", hl.dsp.exec_cmd("~/.config/hypr/scripts/lock-and-suspend.sh"), { description = "Lock then suspend" })
 hl.bind("XF86Calculator", hl.dsp.exec_cmd(launchPrefix .. CALCULATOR), { locked = true, description = "Calculator" })
 
