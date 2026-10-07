@@ -223,3 +223,9 @@ hl.window_rule({
     float = true,
     size  = { "(monitor_w*0.5)", "(monitor_h*0.6)" },
 })
+
+-- DMS's own rules live in ~/.config/hypr/dms/windowrules.lua, rewritten on
+-- every DMS start. Required last so they sit alongside the ones above rather
+-- than being lost when DMS regenerates its half. The file ships as an empty
+-- placeholder so the require never fails; see .config/hypr/dms/layout.lua.
+require("dms.windowrules")

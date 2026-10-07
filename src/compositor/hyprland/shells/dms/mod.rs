@@ -18,8 +18,19 @@
 //! Noctalia skel carries the same path without `NoDisplay`, so switching back brings
 //! the launcher back instead of leaving it hidden.
 //!
-//! The DMS skel has no `gtk-3.0/gtk.css`, so that one is deliberately left as the
-//! user has it.
+//! `gtk-3.0/gtk.css` is in that list for the reason `gtk-4.0/gtk.css` always has
+//! been: both are entry points that name the sheet the shell renders beside them
+//! (`dank-colors.css` here, `noctalia.css` under Noctalia), and a switch replaces
+//! them outright rather than editing them. Leaving the other shell's import in
+//! place would keep GTK pointing at a file nobody is running to write. The same
+//! goes for `qt6ct/qt6ct.conf`, which holds `color_scheme_path` — matugen writes
+//! the palette it points at and never the pointer.
+//!
+//! The four placeholders under `.config/hypr/dms/` are not here. They belong to
+//! the compositor's own `config_dir`, which `plan` takes from the skel whole.
+//!
+//! The theme files `dms.rs` lists as `generated_paths` are the counterpart:
+//! matugen renders those, so nothing here installs them.
 
 use crate::shell::{Port, Shell, StartMechanism};
 use crate::shells::dms::IDENTITY;
@@ -30,9 +41,11 @@ const PORT: Port = Port {
     systemd_user_unit: Some("dms"),
     mechanism: StartMechanism::SystemdUserUnit,
     skel_extra_paths: &[
+        ".config/gtk-3.0/gtk.css",
         ".config/gtk-3.0/settings.ini",
         ".config/gtk-4.0/settings.ini",
         ".config/gtk-4.0/gtk.css",
+        ".config/qt6ct/qt6ct.conf",
         ".local/share/applications/dev.noctalia.Noctalia.desktop",
     ],
     backup_extra_paths: &[".local/share/applications/dev.noctalia.Noctalia.desktop"],

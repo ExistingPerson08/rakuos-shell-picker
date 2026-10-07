@@ -112,6 +112,25 @@ pub const IDENTITY: Identity = Identity {
         args: &["rum", "remove", "-y"],
     }),
     companion_systemd_user_units: &["dcal"],
-    generated_paths: &[],
+    // Matugen renders these from the wallpaper, not the switch — DMS's
+    // `matugen/configs/gtk3-*.toml` and `qt5ct.toml`/`qt6ct.toml` name them as
+    // their output paths, and every one lands in a directory SHARED_PATHS
+    // already walks. They are the exact counterpart of Noctalia's four: the same
+    // four directories, the same reason, so that leaving DMS takes its theme
+    // with it instead of leaving `dank-colors.css` beside a gtk.css that no
+    // longer imports it.
+    //
+    // Only those four. DMS also writes into `.config/ghostty`, `.config/kitty`,
+    // `.config/foot`, `.config/alacritty` and the rest of matugen's templates,
+    // and those directories belong to the programs themselves rather than to
+    // the session, so a switch neither backs them up nor cleans them. Listing
+    // them here would fail `every_generated_path_is_backed_up`, which is the
+    // test saying so out loud.
+    generated_paths: &[
+        ".config/gtk-3.0/dank-colors.css",
+        ".config/gtk-4.0/dank-colors.css",
+        ".config/qt5ct/colors/matugen.conf",
+        ".config/qt6ct/colors/matugen.conf",
+    ],
     logo: Some("danklogo2.svg"),
 };

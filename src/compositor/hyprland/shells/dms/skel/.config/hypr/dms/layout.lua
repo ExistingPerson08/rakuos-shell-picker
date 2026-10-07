@@ -1,0 +1,11 @@
+-- Placeholder shipped by the skel. DMS rewrites this file on every start.
+--
+-- config/decorations.lua requires it, so it has to exist before DMS runs:
+-- apply::swap replaces ~/.config/hypr wholesale, which throws away whatever DMS
+-- wrote last, and Hyprland reads hyprland.lua before autostart.lua gets DMS
+-- started. A require() that fails trips emergency mode -- no binds at all --
+-- which would also stop DMS from ever starting to recreate this file.
+--
+-- Nothing belongs here. The baseline gaps, border and rounding live in
+-- config/decorations.lua and are what the first load after a switch uses; DMS
+-- overwrites them with its own settings as soon as it starts.

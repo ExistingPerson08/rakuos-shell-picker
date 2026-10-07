@@ -1,0 +1,8 @@
+-- Placeholder shipped by the skel. DMS rewrites this file on every start with
+-- its own rules -- today just "float anything whose class is com.danklinux.dms".
+--
+-- config/windowrules.lua requires it, so it has to exist before DMS runs: see
+-- the note in layout.lua for why a failing require is not survivable.
+--
+-- Nothing belongs here. Everything this desktop wants regardless of shell is in
+-- config/windowrules.lua, which is required first.

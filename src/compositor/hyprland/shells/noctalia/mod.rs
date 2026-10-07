@@ -8,11 +8,12 @@
 //!   Noctalia means starting the process and switching away means ending it.
 //! - **backup**: `~/.config/noctalia` plus `~/.local/state/noctalia`, because most
 //!   of a Noctalia setup lives in the second one.
-//! - **clean**: those same two paths, once the backup taken for that switch
-//!   reproduces them byte for byte. Nothing else is cleaned. The theme files are
-//!   left alone deliberately: DMS replaces `~/.config/gtk-4.0/gtk.css` but not
-//!   the `gtk-3.0` one, which still reads `noctalia.css` — deleting it would
-//!   strip GTK3 of its theming rather than tidy up.
+//! - **clean**: those same two paths, plus the four rendered themes, once the
+//!   backup taken for that switch reproduces them byte for byte. Nothing else is
+//!   cleaned: `gtk-3.0/gtk.css` and `qt6ct/qt6ct.conf` are not in that list
+//!   because the shell being switched to overwrites them from its own skel on
+//!   the way in, which is what keeps either shell's `@import` and
+//!   `color_scheme_path` pointing at a sheet its own shell is running to write.
 //! - **verify**: a process named `noctalia` is alive.
 //!
 //! The Hyprland page also carries the launcher entry and the theme files, because
@@ -35,11 +36,13 @@ const PORT: Port = Port {
     // replaces: without it, switching back would leave Noctalia installed and
     // invisible.
     skel_extra_paths: &[
+        ".config/gtk-3.0/gtk.css",
         ".config/gtk-3.0/noctalia.css",
         ".config/gtk-3.0/settings.ini",
         ".config/gtk-4.0/noctalia.css",
         ".config/gtk-4.0/settings.ini",
         ".config/gtk-4.0/gtk.css",
+        ".config/qt6ct/qt6ct.conf",
         ".local/share/applications/dev.noctalia.Noctalia.desktop",
     ],
     backup_extra_paths: &[".local/share/applications/dev.noctalia.Noctalia.desktop"],

@@ -45,3 +45,17 @@ hl.config({
         },
     },
 })
+
+-- DMS writes ~/.config/hypr/dms/layout.lua and colours.lua itself, so they are
+-- required here rather than copied into config/: moving them would leave DMS
+-- writing files nothing reads. They sit after the baseline above on purpose --
+-- hl.config merges, so DMS's own gaps, border and rounding take over as soon as
+-- it has run, and the values above are only what the first load after a switch
+-- falls back on.
+--
+-- Both files exist in the skel as empty placeholders for the reason spelled out
+-- in .config/hypr/dms/layout.lua: a require() that fails puts Hyprland into
+-- emergency mode with no binds at all, which would also stop autostart.lua
+-- from starting DMS.
+require("dms.layout")
+require("dms.colors")

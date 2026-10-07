@@ -351,6 +351,73 @@ fn every_declared_skel_extra_path_really_is_in_the_skel() {
 }
 
 #[test]
+fn every_file_in_a_skel_reaches_the_machine() {
+    // The mirror of the test above, and the one that catches a file added to a
+    // skel without a declaration to go with it.
+    //
+    // `apply::plan` writes exactly four things: the compositor's config_dir, the
+    // target's config_dir, its state_dir, and `skel_extra_paths`. A fifth file
+    // dropped into a skel is shipped and never installed — it passes the test
+    // above precisely because nothing declares it, and a switch then leaves the
+    // previous shell's copy of that path in place. Two files were in exactly
+    // that position before this test existed, each with a comment in the skel
+    // explaining why the switch has to replace it.
+    //
+    // `generated_paths` counts as coverage: a skel may seed a file the shell
+    // refreshes itself, which is what Noctalia's rendered themes are.
+    fn collect(dir: &std::path::Path, base: &std::path::Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect(&path, base, out);
+            } else {
+                let rel = path
+                    .strip_prefix(base)
+                    .expect("every skel file is inside the skel")
+                    .to_string_lossy()
+                    .into_owned();
+                out.push(rel);
+            }
+        }
+    }
+
+    for compositor in super::compositor::all() {
+        for shell in compositor.shells() {
+            let skel = crate::apply::skel_for(compositor.id(), shell.id);
+            if !skel.is_dir() {
+                continue;
+            }
+            let mut files = Vec::new();
+            collect(&skel, &skel, &mut files);
+            files.sort();
+            for rel in files {
+                let owned = [
+                    Some(compositor.config_dir()),
+                    shell.config_dir,
+                    shell.state_dir,
+                ]
+                .into_iter()
+                .flatten()
+                .chain(shell.skel_extra_paths.iter().copied())
+                .chain(shell.generated_paths.iter().copied())
+                .any(|prefix| rel == prefix || rel.starts_with(&format!("{prefix}/")));
+                assert!(
+                    owned,
+                    "{}/{} ships {rel} but nothing makes a switch write it: plan only \
+                     writes config_dir, state_dir and skel_extra_paths, and this file \
+                     is under none of them",
+                    compositor.id(),
+                    shell.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn a_mechanism_agrees_with_its_unit_name() {
     // `apply::start` and `apply::verify` branch on the mechanism and then read
     // the unit name, so a shell could claim one and not supply the other. Both

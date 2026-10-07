@@ -939,12 +939,22 @@ fn clean(
         .flatten()
         .chain(outgoing.generated_paths.iter().copied())
     {
+        let live = home.join(rel);
+        if !live.exists() {
+            continue;
+        }
+
         // Cheap, and the only thing standing between two shells and one of them
         // deleting a file the other has just installed. The swap wrote every path
         // in `target.skel_extra_paths` moments ago and `generated_paths` may be
         // shared as well, so removing either would take away the shell that is
         // starting. A future registry that gave two shells the same `config_dir`
         // is caught here too.
+        //
+        // Asked after the existence check rather than before it, because `kept`
+        // counts what was kept: a path nobody has written anything to is not a
+        // file the target rescued, and `generated_paths` makes that common — most
+        // of the entries a shell declares have never landed on this machine.
         if target.config_dir == Some(rel)
             || target.state_dir == Some(rel)
             || target.skel_extra_paths.contains(&rel)
@@ -955,11 +965,6 @@ fn clean(
                 target.display_name
             ));
             kept += 1;
-            continue;
-        }
-
-        let live = home.join(rel);
-        if !live.exists() {
             continue;
         }
 
