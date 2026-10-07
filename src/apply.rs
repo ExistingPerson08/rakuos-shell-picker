@@ -406,13 +406,20 @@ pub fn apply_with(
 
         if let Some(plan) = outgoing.uninstall_plan {
             progress(&format!("removing the {} packages", outgoing.display_name));
-            match crate::switch::uninstall(plan, progress) {
+            match crate::switch::uninstall(plan, target.runtime_packages, progress) {
                 crate::switch::Removed::Finished { stages, .. } => progress(&format!(
                     "{}'s packages are off the machine ({stages} stage(s))",
                     outgoing.display_name
                 )),
                 crate::switch::Removed::AlreadyGone { .. } => {
                     progress("its packages were already gone");
+                }
+                crate::switch::Removed::Kept { .. } => {
+                    progress(&format!(
+                        "{} shares everything it was installed with with {}, so nothing \
+                         was removed",
+                        outgoing.display_name, target.display_name
+                    ));
                 }
                 crate::switch::Removed::Dismissed { stage } => progress(&format!(
                     "stage {stage} was not authorized, so {} stays installed",
@@ -676,12 +683,149 @@ fn stage(entries: &[Entry], home: &Path, target_id: &str, stamp: &str) -> Result
     Ok(root)
 }
 
+/// How [`stop`] takes a shell down.
+///
+/// The split mirrors [`StartMechanism`](crate::shell::StartMechanism), because
+/// a shell is stopped the same way it was started. The two `start` branches
+/// exist for a reason — a shell systemd supervises is not a bare process — and
+/// that reason does not stop applying once the shell is on its way out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StopPlan {
+    /// The shell runs under a systemd user unit, named as in
+    /// [`Shell::systemd_user_unit`](crate::shell::Shell::systemd_user_unit).
+    Unit(&'static str),
+    /// The shell is a plain process and is taken down through its pids.
+    Signals,
+}
+
+/// Which instruction [`stop`] sends, decided from the registry alone.
+///
+/// Pure and separate so the answer can be asserted without a shell to stop:
+/// signalling a running desktop from a test is not something the suite can do,
+/// and the cost of getting this wrong is a shell that comes back.
+fn stop_plan(shell: &Shell) -> Result<StopPlan, String> {
+    if shell.mechanism.uses_systemd_unit() {
+        let unit = shell
+            .systemd_user_unit
+            .ok_or_else(|| format!("{} claims a systemd unit but names none", shell.id))?;
+        Ok(StopPlan::Unit(unit))
+    } else {
+        Ok(StopPlan::Signals)
+    }
+}
+
 /// Stop a shell, politely and then not.
+///
+/// The branch comes from [`stop_plan`]. A shell systemd owns is stopped through
+/// its unit, for the mirror of the reason [`start`] talks to systemd: signalling
+/// the process alone leaves the unit itself untouched and outside anything this
+/// program can see, so what reports "stopped" and what the session believes
+/// would be two different questions. A shell that is a plain process is signalled
+/// instead — SIGTERM first because a shell that exits cleanly gets to write its
+/// state, with the kill as a fallback rather than the plan, and a loop that waits
+/// to see whether the first signal was enough rather than assuming either way.
+///
+/// The shell's companion units come down after it rather than before. They exist
+/// for the shell's benefit, so they are of no use once it is gone, and taking
+/// them first would visibly break the widgets they supply while the shell that
+/// draws them was still running. They are reported rather than fatal: the shell
+/// itself is down by then, and failing a switch over a helper that would not
+/// stop would leave the session with no shell at all — the one outcome worse
+/// than a helper still sitting there.
+fn stop(shell: &Shell, progress: &mut dyn FnMut(&str)) -> Result<(), String> {
+    match stop_plan(shell)? {
+        StopPlan::Unit(unit) => stop_unit(shell, unit, progress)?,
+        StopPlan::Signals => stop_signals(shell, progress)?,
+    }
+    stop_companions(shell, progress);
+    Ok(())
+}
+
+/// Stop the shell by asking systemd, then confirm the process really went.
+///
+/// `systemctl stop` is synchronous and waits for the unit's cgroup to empty, so
+/// the pid check after it is not paranoia but the answer to the question this
+/// branch exists for: the unit saying it stopped and the shell being gone are
+/// the same claim, and only one of them is observed rather than reported.
+fn stop_unit(
+    shell: &Shell,
+    unit: &'static str,
+    progress: &mut dyn FnMut(&str),
+) -> Result<(), String> {
+    let name = format!("{unit}.service");
+    let before = pids_of(shell.binary);
+    if before.is_empty() {
+        progress(&format!("{} is not running", shell.display_name));
+    } else {
+        progress(&format!(
+            "stopping {} ({name}, pid {})",
+            shell.display_name,
+            before
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    let out = run("systemctl", &["--user", "stop", &name])
+        .map_err(|e| format!("cannot run systemctl: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "{name} refused to stop: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+
+    let left = pids_of(shell.binary);
+    if !left.is_empty() {
+        return Err(format!(
+            "{} is still running (pid {}) after {name} reported stopped",
+            shell.display_name,
+            left.iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !before.is_empty() {
+        progress(&format!("{} stopped", shell.display_name));
+    }
+    Ok(())
+}
+
+/// Take the helpers the shell declared down with it.
+///
+/// Every failure is a line rather than an error, for the reason in [`stop`]: by
+/// the time this runs the shell is already gone, so the switch cannot retreat
+/// to a working session by refusing here. What it can do is say so, because a
+/// helper left running after its shell has been uninstalled is dirt the user
+/// should be told about rather than discover later.
+fn stop_companions(shell: &Shell, progress: &mut dyn FnMut(&str)) {
+    for unit in shell.companion_systemd_user_units {
+        let name = format!("{unit}.service");
+        let line = match run("systemctl", &["--user", "stop", &name]) {
+            Ok(out) if out.status.success() => {
+                progress(&format!("stopped {name}"));
+                continue;
+            }
+            Ok(out) => format!(
+                "cannot stop {name}: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+            Err(err) => format!("cannot run systemctl to stop {name}: {err}"),
+        };
+        crate::logging::warn(&line);
+        progress(&line);
+    }
+}
+
+/// Stop a shell that systemd does not supervise, politely and then not.
 ///
 /// SIGTERM first because a shell that exits cleanly gets to write its state. The
 /// kill is a fallback, not the plan, and the loop waits to see whether the first
 /// signal was enough rather than assuming either way.
-fn stop(shell: &Shell, progress: &mut dyn FnMut(&str)) -> Result<(), String> {
+fn stop_signals(shell: &Shell, progress: &mut dyn FnMut(&str)) -> Result<(), String> {
     let pids = pids_of(shell.binary);
     if pids.is_empty() {
         progress(&format!("{} is not running", shell.display_name));
@@ -919,6 +1063,12 @@ fn discard_asides(asides: &[Aside], backups_root: &Path) -> (usize, usize) {
 /// `generated_paths` — the themes it renders into shared directories and would
 /// render again on its next start. See [`crate::shell::Identity::generated_paths`].
 ///
+/// Then its `discard_paths`, which are outside that rule on purpose: they are
+/// the files and caches the shell wrote that hold no data, so there is nothing
+/// for a backup to reproduce and nothing for a check to protect. They are
+/// deleted on their own terms, with only the ownership guard left. See
+/// [`crate::shell::Identity::discard_paths`].
+///
 /// A mismatch is expected rather than exceptional. The shell was still running
 /// when the backup was taken and was stopped a moment later, so it can easily
 /// have written something in between. The file is then kept and said out loud,
@@ -934,6 +1084,23 @@ fn clean(
     let mut removed = 0;
     let mut kept = 0;
 
+    // The guard applies to both lists below and is asked for by the same
+    // reasoning in both: the swap wrote every path in `target.skel_extra_paths`
+    // moments ago, so removing a path the incoming shell owns would take away
+    // the shell that is starting. A future registry that gave two shells the
+    // same `config_dir` is caught here too.
+    //
+    // Asked after the existence check rather than before it, because `kept`
+    // counts what was kept: a path nobody has written anything to is not a file
+    // the target rescued, and `generated_paths` makes that common — most of the
+    // entries a shell declares have never landed on this machine.
+    let target_owns = |rel: &str| {
+        target.config_dir == Some(rel)
+            || target.state_dir == Some(rel)
+            || target.skel_extra_paths.contains(&rel)
+            || target.generated_paths.contains(&rel)
+    };
+
     for rel in [outgoing.config_dir, outgoing.state_dir]
         .into_iter()
         .flatten()
@@ -944,22 +1111,7 @@ fn clean(
             continue;
         }
 
-        // Cheap, and the only thing standing between two shells and one of them
-        // deleting a file the other has just installed. The swap wrote every path
-        // in `target.skel_extra_paths` moments ago and `generated_paths` may be
-        // shared as well, so removing either would take away the shell that is
-        // starting. A future registry that gave two shells the same `config_dir`
-        // is caught here too.
-        //
-        // Asked after the existence check rather than before it, because `kept`
-        // counts what was kept: a path nobody has written anything to is not a
-        // file the target rescued, and `generated_paths` makes that common — most
-        // of the entries a shell declares have never landed on this machine.
-        if target.config_dir == Some(rel)
-            || target.state_dir == Some(rel)
-            || target.skel_extra_paths.contains(&rel)
-            || target.generated_paths.contains(&rel)
-        {
+        if target_owns(rel) {
             crate::logging::warn(&format!(
                 "not cleaning {rel}: {} owns the same path",
                 target.display_name
@@ -995,6 +1147,49 @@ fn clean(
             }
             Err(err) => {
                 let line = format!("cannot remove {rel} after a successful switch: {err}");
+                crate::logging::error(&line);
+                progress(&line);
+                kept += 1;
+            }
+        }
+    }
+
+    // The list with no data in it. No byte-for-byte comparison, because the
+    // check this function is built on exists to stop a delete from losing
+    // something a person wrote — and `every_discard_path_is_never_preserved`
+    // fails the suite if any of these is reachable from a path a switch backs
+    // up. There is nothing here to lose, which is the whole reason the list
+    // exists.
+    for rel in outgoing.discard_paths {
+        let live = home.join(rel);
+        if !live.exists() {
+            continue;
+        }
+
+        if target_owns(rel) {
+            crate::logging::warn(&format!(
+                "not discarding {rel}: {} owns the same path",
+                target.display_name
+            ));
+            kept += 1;
+            continue;
+        }
+
+        let result = if live.is_dir() && !live.is_symlink() {
+            std::fs::remove_dir_all(&live)
+        } else {
+            std::fs::remove_file(&live)
+        };
+        match result {
+            Ok(()) => {
+                crate::logging::info(&format!("discarded {rel}: it holds no data"));
+                progress(&format!(
+                    "discarded {rel}; it holds no data, so no copy was taken"
+                ));
+                removed += 1;
+            }
+            Err(err) => {
+                let line = format!("cannot discard {rel} after a successful switch: {err}");
                 crate::logging::error(&line);
                 progress(&line);
                 kept += 1;

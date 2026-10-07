@@ -65,7 +65,7 @@ yang berubah menurut compositor:
 |---|---|
 | `id`, `display_name`, `upstream` | `Identity` | — |
 | `package`, `start_argv`, `logo` | `Identity` | — |
-| `install_plan`, `uninstall_plan`, `companion_systemd_user_units`, `generated_paths` | `Identity` | — |
+| `install_plan`, `uninstall_plan`, `companion_systemd_user_units`, `generated_paths`, `discard_paths`, `runtime_packages` | `Identity` | — |
 | `config_dir`, `state_dir` | — | `Port` |
 | `systemd_user_unit`, `mechanism` | — | `Port` |
 | `skel_extra_paths`, `backup_extra_paths` | — | `Port` |
@@ -115,6 +115,17 @@ Di `src/tests/lib_registry.rs` (dideklarasikan dari `src/lib.rs` sebagai
 - `every_installed_path_is_backed_up` — setiap file yang ditulis switch dari skel
   wajib punya backup. Ini yang menahan penambahan `skel_extra_paths` tanpa
   Declaration backup yang cocok.
+- `every_generated_path_is_backed_up` — kebalikannya: setiap path yang `clean`
+  hanya berani hapus kalau backup mereproduksinya byte-for-byte wajib berada
+  di dalam direktori yang `backup_sources` jelajahi, atau tidak akan pernah
+  dihapus sama sekali.
+- `every_discard_path_is_never_preserved` — dan kebalikannya lagi: path yang
+  dihapus **tanpa** syarat backup tidak boleh beririsan dengan jalur mana pun
+  yang di-backup. Yang ada datanya dibackup, yang tidak ada datanya dibersihkan;
+  test ini yang memastikan keduanya tidak pernah bertukar tempat.
+- `every_file_in_a_skel_reaches_the_machine` — setiap file di folder skel
+  ternyata punya jalur yang benar-benar ditulis `plan`, bukan cuma tercopy ke
+  staging lalu dilupakan.
 
 ## Menambah shell
 
@@ -184,7 +195,7 @@ Ulangi folder itu untuk setiap compositor lain yang menawarkannya.
 `<compositor>/shells/nama_baru/mod.rs` akan berbeda di `mechanism` atau
 `systemd_user_unit` kalau memang begitu, dan identik kalau memang sama.
 
-Empat field yang sering tertukar:
+Enam field yang sering tertukar:
 
 - `skel_extra_paths` — file yang switch **timpa**. Tambah di sini berarti
   menimpa file milik user, jadi harus ada di `backup_extra_paths` atau
@@ -207,6 +218,36 @@ Empat field yang sering tertukar:
   switch. `plan` juga membacanya kembali saat shell itu dipilih lagi. Mengisi
   `state_dir` otomatis menambah semuanya; membuat daftar bersih terpisah hanya
   menambah tempat yang bisa berbeda.
+
+Lalu yang memisahkan kedua daftar bersih itu — aturan satu kalimat: **yang ada
+datanya dibackup, yang tidak ada datanya dibersihkan.**
+
+- `discard_paths` — cache dan file render yang **tidak pernah diedit siapa
+  pun** (`.cache/DankMaterialShell`, `themes/dankcolors`, skema warna
+  `DankMatugen*`). `clean` menghapusnya tanpa memeriksa backup, karena memang
+  tidak ada yang perlu diselamatkan; backup pun tidak membawanya, supaya satu
+  switch tidak memindahkan beberapa megabyte ulangan yang bisa diregenerasi.
+  `every_discard_path_is_never_preserved` menggagalkan kalau ada irisan dengan
+  jalur mana pun yang `backup_sources` jelajahi — kalau irisan itu ada, "tidak
+  ada yang bisa hilang" berubah dari sifat jadi harapan.
+
+Benturan dua aturan ini di dua arah yang berbeda adalah disengaja:
+`generated_paths` harus berada **di dalam** jalur backup supaya boleh dihapus,
+`discard_paths` harus berada **di luar** supaya boleh dihapus tanpa syarat.
+
+- `runtime_packages` — paket yang shell ini **dijalankan di atas**, bukan paket
+  yang dirinya sendiri. Ini penjaga yang membuat `uninstall_plan` boleh berisi
+  lebih dari paket milik shell yang pergi: `switch::uninstall` men-drop setiap
+  paket yang ada di daftar ini milik **shell yang sedang dinyalakan**, sebelum
+  package manager melihatnya. Caelestia dan Ambxst berjalan di atas `quickshell`
+  dan keduanya tidak punya paket, jadi tanpa guard ini DMS → Caelestia akan
+  mencabut runtime shell baru. Sebaliknya, Noctalia kosong di daftar ini —
+  itulah yang membuat arah DMS → Noctalia justru menghapus `quickshell-git`.
+  Salah isi hanya bisa berakibat paket **ditahan**, bukan shell rusak, jadi
+  arah yang aman untuk salah adalah mendeklarasikannya.
+
+Lihat [SWITCH-FLOW.md](SWITCH-FLOW.md) untuk urutan lengkap kedua arah beserta
+daftar file yang masing-masing langkah sentuh.
 
 Test `every_registered_shell_has_its_logo_on_disk` gagal kalau SVG-nya lupa
 ditaruh di `assets/`.

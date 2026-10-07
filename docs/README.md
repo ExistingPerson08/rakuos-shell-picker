@@ -8,6 +8,7 @@ Indeks semua dokumen. Baca **ARCHITECTURE.md** lebih dulu sebelum mengubah kode.
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Toolchain, dependency, dan pemeriksaan environment |
 | [FEATURES.md](FEATURES.md) | Fitur yang ada, yang direncanakan, syarat "selesai" |
 | [SAFETY.md](SAFETY.md) | Jaminan backup, rollback, dan hal yang tidak boleh dilanggar |
+| [SWITCH-FLOW.md](SWITCH-FLOW.md) | Urutan langkah switch Noctalia ⇄ DMS, file yang disentuh tiap langkah |
 | [UI.md](UI.md) | Spesifikasi layout dan angka tetap tampilan |
 
 

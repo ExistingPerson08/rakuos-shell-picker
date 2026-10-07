@@ -305,6 +305,19 @@ empat file tema yang tidak akan pernah dipakai lagi. Syaratnya sama persis
 dengan langkah 12 — hanya yang backup switch ini reproduksi byte untuk byte —
 dan keempatnya bisa memenuhinya justru karena direktorinya di-backup.
 
+Satu daftar kelima ikut dibersihkan, `discard_paths`, dan justru karena itu
+tidak memakai syarat langkah 12: cache dan file render yang **tidak pernah
+diedit siapa pun**. Tidak ada yang perlu disimpan untuk sebuah berkas yang bisa
+diregenerasi shell pembuatnya, jadi `clean` menghapusnya atas dasar deklarasi
+saja, dan backup tidak membawanya — satu switch tidak seharusnya memindahkan
+beberapa megabyte ulangan. Syaratnya bukan "dipercaya", melainkan "mustahil
+berisi data": `every_discard_path_is_never_preserved` menggagalkan suite kalau
+ada irisan dengan jalur mana pun yang `backup_sources` jelajahi, termasuk kasus
+di mana sebuah `discard_paths` jadi induk dari direktori yang di-backup —
+itu akan menghapus tanpa syarat semua isinya, termasuk salinan yang baru saja
+diambil. Guard pemilik tetap berlaku: path yang dimiliki shell tujuan tidak
+disentuh.
+
 Launcher tidak dibersihkan: kedua shell memasangnya dari skel masing-masing,
 jadi shell berikutnya sudah menimpanya sendiri.
 
@@ -357,7 +370,7 @@ syaratnya terpenuhi". Yang tidak punya syarat ada di tabel kedua.
 |---|---|
 | Menulis sebagian dari `~/.config/hypr` | Filenya saling merujuk. Menyisipkan satu file ke direktori milik shell lain meninggalkan config yang setengah milik dua shell, dan gagalnya baru terasa saat Hyprland sudah start. Diganti penuh atau tidak disentuh. |
 | `rm -rf` config tanpa backup yang terbukti tersimpan | Backup yang gagal membatalkan switch. Tidak ada kondisi di mana config hilang dan switch tetap jalan. Ini berlaku sama untuk langkah bersih: ukurannya bukan "backup ada", tapi "backup ini menggambarkan file ini". |
-| Menghapus runtime bersama dari dalam switch | `quickshell-git` dipakai shell lain juga. Yang keluar hanya paket milik shell yang pergi; sisa yang jadi yatim adalah kandidat `rum autoremove`, tetap pilihan terpisah. |
+| Menghapus runtime bersama **yang masih dipakai shell tujuan** | `quickshell-git` dipakai shell lain juga — Caelestia dan Ambxst berjalan di atasnya dan keduanya tidak punya paket, jadi mencabutnya berarti shell baru tanpa runtime dan tanpa cara mengembalikannya. `switch::uninstall` men-drop setiap paket yang ada di `runtime_packages` milik shell tujuan sebelum package manager melihatnya. Membalik arahnya: DMS → Noctalia **menghapus** quickshell, karena Noctalia biner asli dan tidak membutuhkannya. |
 
 ### Membersihkan shell yang ditinggalkan
 

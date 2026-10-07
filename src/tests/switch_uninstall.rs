@@ -14,7 +14,7 @@ fn a_removal_with_nothing_installed_never_reaches_the_package_manager() {
     };
 
     let mut said = Vec::new();
-    let outcome = uninstall(plan, &mut |line| said.push(line.to_string()));
+    let outcome = uninstall(plan, &[], &mut |line| said.push(line.to_string()));
 
     assert!(
         matches!(outcome, Removed::AlreadyGone { .. }),
@@ -39,27 +39,93 @@ fn a_removal_plan_that_names_nothing_is_refused_rather_than_run() {
         args: &["rum", "remove", "-y"],
     };
 
-    let outcome = uninstall(plan, &mut |_| {});
+    let outcome = uninstall(plan, &[], &mut |_| {});
     assert!(matches!(outcome, Removed::Malformed { package: "dms" }));
 }
 
 #[test]
-fn the_removal_plan_leaves_the_shared_runtime_on_the_machine() {
-    // `quickshell-git` is a runtime rather than DMS, and Caelestia and anything
-    // else running on quickshell would stop working the moment DMS was switched
-    // away from. `docs/SAFETY.md` keeps `rum autoremove` as a separate explicit
-    // choice precisely so that a switch never decides this on the user's behalf.
+fn the_removal_plan_takes_the_runtime_it_was_the_one_to_install() {
+    // The half of the old rule that survives. `quickshell-git` goes in DMS's
+    // removal plan because nothing else on the machine asks for it once `dms`
+    // and `dankcalendar-git` are in the same transaction — an orphan a switch
+    // left for `rum autoremove` to find was not a safety property, it was a
+    // mess. The other half of the old rule, "never take a shared runtime out",
+    // now lives in `uninstall`, which drops anything the incoming shell declares.
     let plan = crate::shell::find("dms")
         .expect("registered")
         .uninstall_plan
         .expect("dms can be installed, so it can be removed");
 
     assert!(
-        !plan.packages().contains(&"quickshell-git"),
-        "a switch must not take out a runtime another shell may be running on"
+        plan.packages().contains(&"quickshell-git"),
+        "DMS installed the runtime, so leaving DMS should take it too"
     );
     assert!(
         plan.packages().contains(&"dms"),
         "and it must take out the shell itself"
+    );
+}
+
+#[test]
+fn a_package_the_shell_being_switched_to_runs_on_is_never_sent_to_the_package_manager() {
+    // The guard that replaced the blanket "never remove a shared runtime".
+    // `keep` is `target.runtime_packages` read by `apply`, and it is applied
+    // before the package manager is asked for anything — so the runtime is not
+    // removed and then put back, it is simply never offered for removal.
+    let plan = UninstallPlan {
+        package: "rsp-gone-anyway",
+        stages: &[&["rsp-absent-one", "rsp-absent-two"]],
+        program: "pkexec",
+        args: &["rum", "remove", "-y"],
+    };
+
+    let mut said = Vec::new();
+    let outcome = uninstall(plan, &["rsp-absent-two"], &mut |line| {
+        said.push(line.to_string())
+    });
+
+    match outcome {
+        Removed::AlreadyGone { packages } => assert_eq!(
+            packages,
+            vec!["rsp-absent-one"],
+            "the package the next shell runs on must not be counted as removable"
+        ),
+        other => panic!("the rest of the plan is still absent, so: {other:?}"),
+    }
+    assert!(
+        said.iter().any(|l| l.contains("keeping rsp-absent-two")),
+        "what was kept has to be said out loud: {said:?}"
+    );
+    assert!(
+        !said.iter().any(|l| l.contains("authorizing")),
+        "nothing was sent anywhere, so no password prompt: {said:?}"
+    );
+}
+
+#[test]
+fn a_plan_whose_every_package_is_needed_by_the_next_shell_runs_nothing() {
+    // The corner the guard makes reachable: a plan that could otherwise remove
+    // something that turns out to be shared by everyone. Reporting it as
+    // "already gone" would send a reader looking for packages that are still
+    // there on purpose, which is why `Removed::Kept` exists.
+    let plan = UninstallPlan {
+        package: "rsp-shared",
+        stages: &[&["rsp-shared-runtime"]],
+        program: "pkexec",
+        args: &["rum", "remove", "-y"],
+    };
+
+    let mut said = Vec::new();
+    let outcome = uninstall(plan, &["rsp-shared-runtime"], &mut |line| {
+        said.push(line.to_string())
+    });
+
+    assert!(matches!(
+        outcome,
+        Removed::Kept { ref packages } if packages == &vec!["rsp-shared-runtime"]
+    ));
+    assert!(
+        !said.iter().any(|l| l.contains("authorizing")),
+        "keeping something is not a transaction: {said:?}"
     );
 }

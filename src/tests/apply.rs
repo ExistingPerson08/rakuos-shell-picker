@@ -447,6 +447,18 @@ fn dms_declares_the_calendar_service_it_draws_widgets_from() {
 }
 
 #[test]
+fn a_shell_is_stopped_the_same_way_it_is_started() {
+    // The whole reason this is a function and not a branch inside `stop`:
+    // `stop` cannot be exercised against a live desktop from the suite, and the
+    // cost of getting the branch wrong is a supervised shell being signalled
+    // like a bare process — left running beside the shell that replaced it,
+    // both after the same notification bus.
+    assert_eq!(stop_plan(&dms::SHELL), Ok(StopPlan::Unit("dms")));
+    assert_eq!(stop_plan(&noctalia::SHELL), Ok(StopPlan::Signals));
+    assert_eq!(dms::SHELL.systemd_user_unit, Some("dms"));
+}
+
+#[test]
 fn the_notification_bus_is_read_from_the_live_system_or_reports_nothing() {
     // There is no session bus in a plain test run, so the honest expectation
     // is `None` — the point is that it must not invent an answer, and must not
@@ -770,6 +782,52 @@ fn the_outgoing_shells_own_files_are_cleaned_once_the_backup_reproduces_them() {
     assert!(said
         .iter()
         .any(|l| l.contains("removed .config/DankMaterialShell")));
+}
+
+#[test]
+fn something_with_no_data_in_it_is_discarded_without_a_backup() {
+    // The rule for the other half of the list: what carries data is backed up,
+    // what does not is simply cleaned. A cache a shell regenerates on its next
+    // start and a theme file nobody edits are worth no bytes of a backup and no
+    // byte-for-byte comparison, so they go on the strength of the declaration
+    // alone.
+    let t = Temp::new("discard");
+    let home = t.path().join("home");
+    let backup = t.path().join("backups/20261007-hyprland-dms");
+
+    write(&home.join(".cache/DankMaterialShell/dms-colors.json"), "{}");
+    write(&home.join(".config/ghostty/themes/dankcolors"), "palette");
+    write(
+        &home.join(".local/share/color-schemes/DankMatugenDark.colors"),
+        "ini",
+    );
+
+    let mut said = Vec::new();
+    assert_eq!(
+        clean(&dms::SHELL, &noctalia::SHELL, &home, &backup, &mut |line| {
+            said.push(line.to_string())
+        }),
+        (3, 0),
+        "no copy of any of it exists and none is needed"
+    );
+
+    for gone in [
+        ".cache/DankMaterialShell",
+        ".config/ghostty/themes/dankcolors",
+        ".local/share/color-schemes/DankMatugenDark.colors",
+    ] {
+        assert!(
+            !home.join(gone).exists(),
+            "{gone} holds no data, so leaving a shell must take it away"
+        );
+    }
+    assert!(
+        !backup.exists(),
+        "cleaning a discard path must not invent a backup for it"
+    );
+    assert!(said
+        .iter()
+        .any(|l| l.contains("discarded .cache/DankMaterialShell")));
 }
 
 #[test]

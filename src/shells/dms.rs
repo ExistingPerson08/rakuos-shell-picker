@@ -88,13 +88,15 @@ pub const IDENTITY: Identity = Identity {
     }),
     uninstall_plan: Some(UninstallPlan {
         package: "dms",
-        // DMS's own packages and nothing else. `quickshell-git` is deliberately
-        // left out even though it was installed first: it is a runtime rather
-        // than the shell, another shell can run on it, and taking it out from
-        // under the shell just switched to is exactly the failure this list is
-        // here to prevent. An orphaned runtime is a candidate for
-        // `rum autoremove`, which SAFETY.md keeps as a separate, explicit choice
-        // rather than something a switch does on its own.
+        // Everything DMS installed, including the runtime it dragged in. The
+        // runtime is the interesting one: it used to be left out on the grounds
+        // that another shell might be running on it, which produced an orphan
+        // `rum autoremove` was left to find instead of a clean machine. The
+        // concern was right and the placement was wrong — the package that must
+        // survive is the one the shell being switched **to** runs on, and that
+        // is known at the moment of the switch, not when this list is written.
+        // `switch::uninstall` therefore filters against
+        // `target.runtime_packages`, which is where the guard lives now.
         //
         // `rum remove` also refuses any package another package still requires,
         // so `matugen` in particular cannot be pulled out from under something
@@ -107,6 +109,17 @@ pub const IDENTITY: Identity = Identity {
             "dankcalendar-git",
             "matugen",
             "khal",
+            // With the rest rather than in a stage of its own: nothing else on
+            // the machine asks for it once `dms` and `dankcalendar-git` are in
+            // the same transaction, so leaving it behind only ever produced an
+            // orphan that `rum autoremove` was left to find.
+            //
+            // It is still a shared runtime, and that is now handled where it
+            // belongs — `switch::uninstall` drops any package the shell being
+            // switched to declares in `runtime_packages`. Caelestia and Ambxst
+            // both do, so switching DMS → either of them keeps quickshell; DMS →
+            // Noctalia does not, and takes it.
+            "quickshell-git",
         ]],
         program: "pkexec",
         args: &["rum", "remove", "-y"],
@@ -132,5 +145,38 @@ pub const IDENTITY: Identity = Identity {
         ".config/qt5ct/colors/matugen.conf",
         ".config/qt6ct/colors/matugen.conf",
     ],
+    // The rest of matugen's output, which is DMS's own work and nobody's data.
+    //
+    // `ghostty` and `zed` get one file each: the directory belongs to the
+    // program and a switch leaves it alone, but the theme inside it is DMS's
+    // render and there is nothing in it worth keeping, so only that file is
+    // named rather than the whole directory. The three colour schemes are the
+    // same in KDE's own format.
+    //
+    // The caches go too. `.cache/DankMaterialShell` is several megabytes of
+    // regenerated output (`matugen.lock`, `dms-colors.json`), and the two
+    // `dankcal` spellings belong to `dankcalendar-git`, which an uninstall
+    // takes away with DMS — its shader cache outlives the package only as
+    // rubbish. `.cache/quickshell` is a compiled-QML cache of a few hundred
+    // bytes: the runtime may or may not still be on the machine after this
+    // switch (see `runtime_packages`), but whoever runs it next recompiles
+    // whatever it needs on the first start, so there is nothing here worth
+    // carrying across either way.
+    //
+    // Nothing here is walked by the backup, and `every_discard_path_is_
+    // never_preserved` fails the suite if any of it ever is.
+    discard_paths: &[
+        ".cache/DankMaterialShell",
+        ".cache/dankcal",
+        ".cache/dank-calendar",
+        ".cache/quickshell",
+        ".config/ghostty/themes/dankcolors",
+        ".config/zed/themes/dank-zed-theme.json",
+        ".local/share/color-schemes/DankMatugen.colors",
+        ".local/share/color-schemes/DankMatugenDark.colors",
+        ".local/share/color-schemes/DankMatugenLight.colors",
+    ],
+    // The runtime DMS is built on, which Caelestia and Ambxst are built on too.
+    runtime_packages: &["quickshell", "quickshell-git"],
     logo: Some("danklogo2.svg"),
 };

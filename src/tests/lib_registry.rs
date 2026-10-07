@@ -272,6 +272,21 @@ fn one_identity_serves_every_compositor_offering_that_shell() {
                 "{} companion units",
                 shell.id
             );
+            assert_eq!(
+                shell.generated_paths, identity.generated_paths,
+                "{} generated paths",
+                shell.id
+            );
+            assert_eq!(
+                shell.discard_paths, identity.discard_paths,
+                "{} discard paths",
+                shell.id
+            );
+            assert_eq!(
+                shell.runtime_packages, identity.runtime_packages,
+                "{} runtime packages",
+                shell.id
+            );
             assert_eq!(shell.logo, identity.logo, "{} logo", shell.id);
             assert_eq!(
                 shell.install_plan.map(|p| p.package),
@@ -596,6 +611,67 @@ fn every_generated_path_is_backed_up() {
 }
 
 #[test]
+fn every_discard_path_is_never_preserved() {
+    // The inverse of the two tests above, and the reason they can stay strict.
+    //
+    // `generated_paths` may only live where a backup already walks, because
+    // `clean` refuses to delete it otherwise. `discard_paths` may not live there
+    // at all: it is the list of things with no data in them, `clean` deletes it
+    // without asking the backup, and a path the backup reproduces is by
+    // definition a path somebody could have written to. Letting the two overlap
+    // would turn "there is nothing here to lose" from a property into a hope.
+    //
+    // `covers` is the same three-way containment the tests above use, run the
+    // other way round: it fails if a discard path is a backed-up path, sits
+    // inside one, or contains one. The last case matters most — a discard path
+    // that were a parent of a backed-up directory would delete on trust
+    // everything under it, including the copy the switch just took.
+    let home = std::path::PathBuf::from("/home/tester");
+    for compositor in super::compositor::all() {
+        for shell in compositor.shells() {
+            let saved: Vec<String> = crate::switch::backup_sources(&home, compositor, Some(shell))
+                .iter()
+                .map(|p| {
+                    p.strip_prefix(&home)
+                        .expect("every backup path is inside home")
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            for rel in shell.discard_paths {
+                assert!(
+                    !rel.starts_with('/') && !rel.contains(".."),
+                    "{}/{} discards {rel}, which is not a path inside home",
+                    compositor.id(),
+                    shell.id
+                );
+                let covered = saved.iter().any(|s| {
+                    rel == s
+                        || rel.starts_with(&format!("{s}/"))
+                        || s.starts_with(&format!("{rel}/"))
+                });
+                assert!(
+                    !covered,
+                    "{}/{} discards {rel}, which a switch backs up: it belongs in \
+                     generated_paths, where the backup has to reproduce it byte \
+                     for byte before it is removed",
+                    compositor.id(),
+                    shell.id
+                );
+            }
+            for (i, rel) in shell.discard_paths.iter().enumerate() {
+                assert!(
+                    !shell.discard_paths[..i].contains(rel),
+                    "{}/{} discards {rel} twice",
+                    compositor.id(),
+                    shell.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn a_compositor_with_no_skel_yet_refuses_every_shell_on_it() {
     // A compositor with no skel has nothing to install, so a switch under it
     // cannot complete — and has to say so rather than leave the old
@@ -783,4 +859,30 @@ fn the_shell_in_the_base_image_is_never_uninstalled() {
     // Its files are another matter: those are the user's, and cleaning them
     // when switching away is exactly what `clean` does.
     assert!(noctalia.config_dir.is_some() || noctalia.state_dir.is_some());
+}
+
+#[test]
+fn a_shell_that_runs_on_a_shared_runtime_says_so_and_the_others_do_not() {
+    // The declaration `switch::uninstall` filters against, pinned to what the
+    // shells actually are. Getting it backwards in either direction costs
+    // something real: a shell that runs on quickshell and does not declare it
+    // loses its runtime the moment DMS leaves, and Noctalia declaring it would
+    // mean switching to Noctalia never cleaned anything of DMS's up.
+    for id in ["dms", "caelestia", "ambxst"] {
+        let shell = super::shell::find(id).expect("registered");
+        assert!(
+            shell.runtime_packages.contains(&"quickshell-git"),
+            "{id} runs on quickshell, so it has to say so or DMS will take it away"
+        );
+        assert!(
+            shell.runtime_packages.contains(&"quickshell"),
+            "{id} accepts either spelling of the runtime"
+        );
+    }
+    let noctalia = super::shell::find("noctalia").expect("registered");
+    assert!(
+        noctalia.runtime_packages.is_empty(),
+        "Noctalia is a native binary and needs no runtime, which is what makes \
+         switching to it the direction that cleans quickshell up"
+    );
 }

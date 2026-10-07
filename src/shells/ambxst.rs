@@ -27,5 +27,7 @@ pub const IDENTITY: Identity = Identity {
     uninstall_plan: None,
     companion_systemd_user_units: &[],
     generated_paths: &[],
+    discard_paths: &[],
+    runtime_packages: &["quickshell", "quickshell-git"],
     logo: Some("ambxst-logo-color.svg"),
 };

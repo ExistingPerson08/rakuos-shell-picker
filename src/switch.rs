@@ -402,6 +402,11 @@ pub enum Removed {
     },
     /// The plan names no packages, so there was nothing to remove.
     Malformed { package: &'static str },
+    /// Every package the plan names is one the shell being switched to still
+    /// runs on, so nothing was removed. Not a failure and not "already gone":
+    /// the packages are there on purpose, and saying otherwise would leave a
+    /// reader looking for a package that was never taken away.
+    Kept { packages: Vec<&'static str> },
 }
 
 /// Remove the plan's packages one stage at a time, asking polkit each time.
@@ -415,7 +420,17 @@ pub enum Removed {
 /// Packages already absent are skipped rather than sent to the package manager,
 /// which is the mirror of the install's behaviour and for the same reason: a
 /// stage that has nothing to do should not ask for a password.
-pub fn uninstall(plan: UninstallPlan, progress: &mut dyn FnMut(&str)) -> Removed {
+///
+/// `keep` is what makes it safe to remove more than the outgoing shell's own
+/// packages: any package the **incoming** shell declares as something it runs on
+/// is dropped from every stage before the package manager sees it. That is the
+/// only reason `quickshell` can be in a removal plan at all — see
+/// [`crate::shell::Identity::runtime_packages`].
+pub fn uninstall(
+    plan: UninstallPlan,
+    keep: &[&'static str],
+    progress: &mut dyn FnMut(&str),
+) -> Removed {
     let packages = plan.packages();
 
     if packages.is_empty() {
@@ -432,11 +447,38 @@ pub fn uninstall(plan: UninstallPlan, progress: &mut dyn FnMut(&str)) -> Removed
         };
     }
 
-    if packages
+    let kept: Vec<&'static str> = packages
+        .iter()
+        .copied()
+        .filter(|p| keep.contains(p))
+        .collect();
+    let removable: Vec<&'static str> = packages
+        .iter()
+        .copied()
+        .filter(|p| !keep.contains(p))
+        .collect();
+
+    if !kept.is_empty() {
+        let line = format!(
+            "keeping {}: the shell that is starting runs on them, so this switch \
+             will not remove them",
+            kept.join(", ")
+        );
+        crate::logging::info(&line);
+        progress(&line);
+    }
+
+    if removable.is_empty() {
+        return Removed::Kept { packages: kept };
+    }
+
+    if removable
         .iter()
         .all(|p| !crate::shell::package_origin(p).installed())
     {
-        return Removed::AlreadyGone { packages };
+        return Removed::AlreadyGone {
+            packages: removable,
+        };
     }
 
     let mut output = String::new();
@@ -448,6 +490,7 @@ pub fn uninstall(plan: UninstallPlan, progress: &mut dyn FnMut(&str)) -> Removed
         let present: Vec<&str> = stage
             .iter()
             .copied()
+            .filter(|p| !keep.contains(p))
             .filter(|p| crate::shell::package_origin(p).installed())
             .collect();
 

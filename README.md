@@ -61,6 +61,7 @@ Aturan singkat: **menambah shell tidak boleh menyentuh `ui/`**. Detailnya di
 | [docs/FEATURES.md](docs/FEATURES.md) | fitur, status, syarat selesai |
 | [docs/LOGGING.md](docs/LOGGING.md) | tiga saluran log, lokasi, format, rotasi |
 | [docs/SAFETY.md](docs/SAFETY.md) | jaminan backup & rollback |
+| [docs/SWITCH-FLOW.md](docs/SWITCH-FLOW.md) | urutan langkah switch Noctalia ⇄ DMS |
 | [docs/UI.md](docs/UI.md) | spesifikasi layout & angka tetap |
 
 Sebelum mulai coding, cek environment:

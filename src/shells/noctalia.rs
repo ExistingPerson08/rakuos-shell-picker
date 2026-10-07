@@ -51,5 +51,15 @@ pub const IDENTITY: Identity = Identity {
         ".config/qt5ct/colors/noctalia.conf",
         ".config/qt6ct/colors/noctalia.conf",
     ],
+    // Only the cache: every theme Noctalia renders lands in one of the four
+    // directories above, which are in `SHARED_PATHS` and therefore backed up
+    // before `clean` touches them. What is left is a megabyte of log and
+    // regenerated state under `.cache/noctalia`, which no backup should carry
+    // and no switch has a use for afterwards.
+    discard_paths: &[".cache/noctalia"],
+    // Nothing. Noctalia 5 is a native C++ binary and needs no runtime the rest
+    // of the desktop does not already have, so a switch to it keeps nothing back
+    // — which is exactly why leaving DMS takes quickshell with it.
+    runtime_packages: &[],
     logo: Some("noctalia.svg"),
 };
