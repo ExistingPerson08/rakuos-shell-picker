@@ -78,10 +78,13 @@ pub const IDENTITY: Identity = Identity {
                 "danksearch",
                 "dankcalendar-git",
                 "matugen",
+                "khal",
             ],
         ],
         program: "pkexec",
-        args: &["rum", "install", "-y"],
+        // `--refresh` because a cached copy of the metadata is only known to be
+        // young, not known to be current. See `switch::install`.
+        args: &["rum", "install", "-y", "--refresh"],
     }),
     uninstall_plan: Some(UninstallPlan {
         package: "dms",
@@ -103,10 +106,12 @@ pub const IDENTITY: Identity = Identity {
             "danksearch",
             "dankcalendar-git",
             "matugen",
+            "khal",
         ]],
         program: "pkexec",
         args: &["rum", "remove", "-y"],
     }),
     companion_systemd_user_units: &["dcal"],
+    generated_paths: &[],
     logo: Some("danklogo2.svg"),
 };

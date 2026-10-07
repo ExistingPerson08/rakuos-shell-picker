@@ -26,5 +26,6 @@ pub const IDENTITY: Identity = Identity {
     install_plan: None,
     uninstall_plan: None,
     companion_systemd_user_units: &[],
+    generated_paths: &[],
     logo: Some("ambxst-logo-color.svg"),
 };

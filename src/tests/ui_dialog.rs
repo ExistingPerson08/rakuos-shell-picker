@@ -38,6 +38,7 @@ static INSTALLED_IDLE: Shell = Shell {
 
     companion_systemd_user_units: &[],
     skel_extra_paths: &[],
+    generated_paths: &[],
     backup_extra_paths: &[],
     mechanism: StartMechanism::DirectProcess,
     logo: None,
@@ -58,6 +59,7 @@ static NOT_INSTALLED: Shell = Shell {
 
     companion_systemd_user_units: &[],
     skel_extra_paths: &[],
+    generated_paths: &[],
     backup_extra_paths: &[],
     mechanism: StartMechanism::DirectProcess,
     logo: None,
@@ -78,6 +80,7 @@ static ALREADY_RUNNING: Shell = Shell {
 
     companion_systemd_user_units: &[],
     skel_extra_paths: &[],
+    generated_paths: &[],
     backup_extra_paths: &[],
     mechanism: StartMechanism::DirectProcess,
     logo: None,

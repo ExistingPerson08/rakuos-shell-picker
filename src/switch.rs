@@ -262,6 +262,16 @@ pub enum Install {
 /// install. Where a provider had to be chosen, the choice is made by naming the
 /// package on the command line instead — see [`InstallPlan::stages`].
 ///
+/// The plan also passes `--refresh`, so the metadata is re-fetched instead of
+/// trusted. `metadata_expire` bounds how old a cached copy may be; it says
+/// nothing about whether the repository moved underneath it. A copy fetched the
+/// day before is inside its window and still names a package the repository no
+/// longer carries, which does not look like a metadata problem at all: the
+/// transaction resolves happily and then the download finds no file to fetch.
+/// Refreshing costs a few seconds on every switch; resolving against metadata
+/// that is young but wrong costs the whole stage, and the backup has already
+/// been taken by then.
+///
 /// A stage that fails stops the plan. Later stages are not attempted, so a
 /// failure in the first one leaves nothing of the shell itself installed.
 ///

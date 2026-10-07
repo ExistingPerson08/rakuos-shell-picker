@@ -189,8 +189,9 @@ Urutan satu-satunya yang boleh dipakai:
                 yang pertama, dan hanya setelah yang baru terbukti utuh
                                             <- gagal di sini, switch dibatalkan
  4. catat state "sedang berganti"           -> supaya sesi bisa dipulihkan
-  5. INSTALL   : satu privileged transaction per tahap, pkexec rum install -y
-                 <paket>, hanya untuk paket yang memang belum ada
+  5. INSTALL   : satu privileged transaction per tahap,
+                 pkexec rum install -y --refresh <paket>,
+                 hanya untuk paket yang memang belum ada
                                              <- gagal di sini, switch dibatalkan
   6. terapkan skel : config shell target dan ~/.config/hypr diganti penuh dari
                      skel; file yang diganti disimpan dulu sebagai .pre-*,
@@ -202,9 +203,10 @@ Urutan satu-satunya yang boleh dipakai:
  10. state     : tulis active/previous
  11. ROLLBACK  : kalau langkah 8/9 gagal, start lagi shell lama dan kembalikan
                  config dari backup
- 12. bersih    : .pre-* yang direproduksi backup dibuang; lalu config dan state
-                 shell keluar dihapus — hanya yang backup switch ini gambarkan
-                 byte untuk byte, sisanya disimpan dan alasannya dilaporkan
+ 12. bersih    : .pre-* yang direproduksi backup dibuang; lalu config, state
+                 dan tema hasil render shell keluar dihapus — hanya yang
+                 backup switch ini gambarkan byte untuk byte, sisanya
+                 disimpan dan alasannya dilaporkan
                  <- gagal di sini TIDAK membatalkan; switch sudah sukses
  13. hapus paket: pkexec rum remove -y, hanya paket milik shell keluar, hanya
                  kalau shell itu punya uninstall_plan
@@ -239,6 +241,26 @@ tahap itu gagal, tahap kedua tidak dijalankan, jadi tidak ada satu pun paket DMS
 di mesin. Menggabungkan keduanya berarti kegagalan runtime ikut menjatuhkan
 paket shell tanpa keuntungan apa pun.
 
+**Install memaksa refresh metadata (`--refresh`), dan itu juga disengaja.**
+Cache repo punya umur (`metadata_expire`), dan umur itu hanya menjawab "seberapa
+tua salinan ini" — bukan "apakah repo berubah". Salinan kemarin masih di dalam
+jendela itu sementara sudah tidak lagi menyebut paket yang ada di server, dan
+gejalanya tidak kelihatan seperti masalah metadata: transaksinya resolve dengan
+mulus, lalu unduhannya tidak menemukan file apa pun (`No more mirrors to try`).
+Itu bukan skenario khayalan — persis itu yang terjadi saat menguji switch, cache
+6 Okt masih menyebut `quickshell-git 0.3.2^866` sedangkan server sudah punya
+`0.3.2^867`, dan tahap 1 gagal padahal repo-nya sehat. Refresh menambah beberapa
+detik; resolve terhadap metadata yang muda tapi salah menggagalkan seluruh tahap,
+dan backup sudah terlanjur diambil.
+
+Refresh-nya ditaruh di `args` rencana install, bukan sebagai perintah terpisah
+yang dijalankan lebih dulu. Alasannya praktis sekaligus jujur: `rum install`
+butuh hak akses root, jadi yang dibacanya cache di `/var/cache/rum` — cache yang
+sama sekali tidak bisa ditulis oleh user. Menjalankan `rum make-cache` sebagai
+user keluar sukses tanpa mengubah apa pun yang nantinya dibaca install. Satu
+flag di dalam transaksi yang sama berarti tidak ada prompt polkit kedua, dan
+baris yang tertulis di log memang baris yang dieksekusi.
+
 
 Backup selalu **lebih dulu**, sebelum satu pun langkah yang menulis. Backup
 hanya membaca, jadi tidak ada ruginya kalau ternyata langkah berikutnya batal.
@@ -271,6 +293,17 @@ daftar yang dibersihkan setelah switch (langkah 12). Satu deklarasi, tiga
 kegunaan: di-backup, dihapus saat keluar, dibaca balik saat kembali. Untuk DMS
 keduanya `.config/DankMaterialShell` dan `.local/state/DankMaterialShell`,
 sehingga jumlahnya tetap delapan.
+
+Satu daftar keempat ikut dibersihkan, `generated_paths`: file yang shell itu
+tulis **sendiri** ke direktori bersama, bukan oleh switch — Noctalia
+merender `gtk-3.0/noctalia.css`, `gtk-4.0/noctalia.css`,
+`qt5ct/colors/noctalia.conf` dan `qt6ct/colors/noctalia.conf` setiap kali
+temanya berubah. Keempatnya tidak muncul sebagai entri di tabel karena
+direktorinya sudah ada di kolom `bersama`, tapi tetap harus dihapus: tidak ada
+shell berikutnya yang menimpanya, jadi pindah dari Noctalia akan meninggalkan
+empat file tema yang tidak akan pernah dipakai lagi. Syaratnya sama persis
+dengan langkah 12 — hanya yang backup switch ini reproduksi byte untuk byte —
+dan keempatnya bisa memenuhinya justru karena direktorinya di-backup.
 
 Launcher tidak dibersihkan: kedua shell memasangnya dari skel masing-masing,
 jadi shell berikutnya sudah menimpanya sendiri.

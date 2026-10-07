@@ -34,13 +34,14 @@ fn the_logged_command_names_every_package_the_plan_stages() {
             "danksearch",
             "dankcalendar-git",
             "matugen",
+            "khal",
         ]
     );
     // Stage 1 is the runtime alone, so a failure there leaves nothing of dms
     // on the machine.
     assert_eq!(
         plan.stage_command_line(&["quickshell-git"]),
-        "pkexec rum install -y quickshell-git"
+        "pkexec rum install -y --refresh quickshell-git"
     );
     assert!(!plan.stage_command_line(plan.stages[0]).contains("dms"));
 }

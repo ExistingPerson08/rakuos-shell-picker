@@ -65,7 +65,7 @@ yang berubah menurut compositor:
 |---|---|
 | `id`, `display_name`, `upstream` | `Identity` | — |
 | `package`, `start_argv`, `logo` | `Identity` | — |
-| `install_plan`, `uninstall_plan`, `companion_systemd_user_units` | `Identity` | — |
+| `install_plan`, `uninstall_plan`, `companion_systemd_user_units`, `generated_paths` | `Identity` | — |
 | `config_dir`, `state_dir` | — | `Port` |
 | `systemd_user_unit`, `mechanism` | — | `Port` |
 | `skel_extra_paths`, `backup_extra_paths` | — | `Port` |
@@ -184,7 +184,7 @@ Ulangi folder itu untuk setiap compositor lain yang menawarkannya.
 `<compositor>/shells/nama_baru/mod.rs` akan berbeda di `mechanism` atau
 `systemd_user_unit` kalau memang begitu, dan identik kalau memang sama.
 
-Tiga field yang sering tertukar:
+Empat field yang sering tertukar:
 
 - `skel_extra_paths` — file yang switch **timpa**. Tambah di sini berarti
   menimpa file milik user, jadi harus ada di `backup_extra_paths` atau
@@ -193,12 +193,20 @@ Tiga field yang sering tertukar:
 - `backup_extra_paths` — file milik shell ini yang switch hancurkan tanpa
   tercatat di `config_dir`/`state_dir`, dan yang tidak punya tempat lain untuk
   dibaca balik. Launcher Noctalia ada di sini karena DMS menimpanya.
-- `config_dir` dan `state_dir` — bukan sekadar lokasi. Ketiganya (dua ini
-  beserta `backup_extra_paths`) adalah daftar backup, dan dua ini juga daftar
-  yang **dibersihkan** setelah switch serta daftar yang **dibaca balik** oleh
-  `plan` saat shell itu dipilih lagi. Mengisi `state_dir` otomatis menambah
-  ketiganya; membuat daftar bersih terpisah hanya menambah tempat yang bisa
-  berbeda.
+- `generated_paths` — file yang **shell sendiri** tulis ke direktori bersama
+  (tema yang dirender ke `gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct`). Bukan
+  masukan switch, jadi tidak boleh ada di `skel_extra_paths`, tapi tetap ikut
+  dibersihkan setelah switch supaya tidak meninggalkan tema yang tak terpakai
+  di mesin. Ada di `Identity`, bukan `Port`, karena sifatnya milik shell.
+  `every_generated_path_is_backed_up` menggagalkan kalau jalurnya berada di
+  luar semua direktori yang `backup_sources` jelajahi — tanpa itu `clean`
+  tidak akan pernah berani menghapusnya.
+- `config_dir` dan `state_dir` — bukan sekadar lokasi. Bersama
+  `backup_extra_paths`, keduanya adalah daftar backup; bersama
+  `generated_paths`, keduanya adalah daftar yang **dibersihkan** setelah
+  switch. `plan` juga membacanya kembali saat shell itu dipilih lagi. Mengisi
+  `state_dir` otomatis menambah semuanya; membuat daftar bersih terpisah hanya
+  menambah tempat yang bisa berbeda.
 
 Test `every_registered_shell_has_its_logo_on_disk` gagal kalau SVG-nya lupa
 ditaruh di `assets/`.

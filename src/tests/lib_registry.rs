@@ -146,8 +146,8 @@ fn only_dms_can_be_installed_and_it_asks_for_polkit() {
     let plan = dms.install_plan.expect("dms installs from a repository");
     assert_eq!(
         plan.command_line(),
-        "pkexec rum install -y quickshell-git dms dms-cli dgop danksearch \
-         dankcalendar-git matugen"
+        "pkexec rum install -y --refresh quickshell-git dms dms-cli dgop \
+         danksearch dankcalendar-git matugen khal"
     );
     // The password must go to the polkit agent, never through this process.
     assert_eq!(plan.program, "pkexec");
@@ -291,15 +291,17 @@ fn one_identity_serves_every_compositor_offering_that_shell() {
 
 #[test]
 fn every_port_stays_inside_home() {
-    // `config_dir`, `state_dir` and `skel_extra_paths` are all joined to `$HOME`
-    // and then written to, so a leading slash or a `..` would put a switch
-    // outside the user's home. SAFETY.md rule 1 depends on this holding.
+    // `config_dir`, `state_dir`, `skel_extra_paths` and `generated_paths` are all
+    // joined to `$HOME` and then written to, so a leading slash or a `..` would
+    // put a switch outside the user's home. SAFETY.md rule 1 depends on this
+    // holding.
     for compositor in super::compositor::all() {
         for shell in compositor.shells() {
             for rel in [shell.config_dir, shell.state_dir]
                 .into_iter()
                 .flatten()
                 .chain(shell.skel_extra_paths.iter().copied())
+                .chain(shell.generated_paths.iter().copied())
             {
                 assert!(
                     !rel.starts_with('/'),
@@ -475,6 +477,49 @@ fn every_installed_path_is_backed_up() {
                     covers(rel),
                     "{}/{} backs up {rel}, which its backup list already \
                      covers another way — drop the duplicate",
+                    compositor.id(),
+                    shell.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn every_generated_path_is_backed_up() {
+    // The mirror of `every_installed_path_is_backed_up`, for the paths a shell
+    // writes for itself rather than the ones a switch writes for it.
+    //
+    // `clean` will not delete a generated path unless this switch's backup
+    // reproduces it byte for byte, so a path outside every directory
+    // `backup_sources` walks would be kept forever and reported as such. That is
+    // merely untidy. The reason it is still a test is the guard itself: the day
+    // somebody loosens the byte-for-byte check, an uncovered entry becomes a
+    // delete with no copy anywhere — which is exactly what the rule-2 test above
+    // exists to prevent, reached from the other direction.
+    let home = std::path::PathBuf::from("/home/tester");
+    for compositor in super::compositor::all() {
+        for shell in compositor.shells() {
+            let saved: Vec<String> = crate::switch::backup_sources(&home, compositor, Some(shell))
+                .iter()
+                .map(|p| {
+                    p.strip_prefix(&home)
+                        .expect("every backup path is inside home")
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            for rel in shell.generated_paths {
+                let covered = saved.iter().any(|s| {
+                    rel == s
+                        || rel.starts_with(&format!("{s}/"))
+                        || s.starts_with(&format!("{rel}/"))
+                });
+                assert!(
+                    covered,
+                    "{}/{} removes {rel} after a switch but never backs it up: \
+                     it has to sit inside a path backup_sources already walks \
+                     (SHARED_PATHS, config_dir or state_dir)",
                     compositor.id(),
                     shell.id
                 );

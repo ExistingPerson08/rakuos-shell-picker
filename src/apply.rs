@@ -915,6 +915,10 @@ fn discard_asides(asides: &[Aside], backups_root: &Path) -> (usize, usize) {
 /// backup that no longer describes what is on disk is not a way back, it is a
 /// reason to leave the file alone.
 ///
+/// The paths are the shell's `config_dir`, its `state_dir`, and its
+/// `generated_paths` — the themes it renders into shared directories and would
+/// render again on its next start. See [`crate::shell::Identity::generated_paths`].
+///
 /// A mismatch is expected rather than exceptional. The shell was still running
 /// when the backup was taken and was stopped a moment later, so it can easily
 /// have written something in between. The file is then kept and said out loud,
@@ -933,11 +937,19 @@ fn clean(
     for rel in [outgoing.config_dir, outgoing.state_dir]
         .into_iter()
         .flatten()
+        .chain(outgoing.generated_paths.iter().copied())
     {
         // Cheap, and the only thing standing between two shells and one of them
-        // deleting the other's live configuration if a future registry ever gave
-        // them the same path.
-        if target.config_dir == Some(rel) || target.state_dir == Some(rel) {
+        // deleting a file the other has just installed. The swap wrote every path
+        // in `target.skel_extra_paths` moments ago and `generated_paths` may be
+        // shared as well, so removing either would take away the shell that is
+        // starting. A future registry that gave two shells the same `config_dir`
+        // is caught here too.
+        if target.config_dir == Some(rel)
+            || target.state_dir == Some(rel)
+            || target.skel_extra_paths.contains(&rel)
+            || target.generated_paths.contains(&rel)
+        {
             crate::logging::warn(&format!(
                 "not cleaning {rel}: {} owns the same path",
                 target.display_name

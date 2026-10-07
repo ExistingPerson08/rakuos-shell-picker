@@ -36,5 +36,20 @@ pub const IDENTITY: Identity = Identity {
     // image's.
     uninstall_plan: None,
     companion_systemd_user_units: &[],
+    // Rendered by Noctalia itself from its own templates, not installed by the
+    // switch — `[theme.templates] builtin_ids = ["gtk3", "gtk4", "hyprland",
+    // "qt"]` writes all four on every start. DMS uses none of them, so they are
+    // what is left over after a switch to DMS, and `clean` takes them away again.
+    //
+    // The other files Noctalia can render are deliberately absent: they go to
+    // `btop`, `cava`, `foot`, `ghostty` and the rest, and those templates are not
+    // in `builtin_ids` on this machine. What is listed here is what actually
+    // lands in a directory the backup already walks.
+    generated_paths: &[
+        ".config/gtk-3.0/noctalia.css",
+        ".config/gtk-4.0/noctalia.css",
+        ".config/qt5ct/colors/noctalia.conf",
+        ".config/qt6ct/colors/noctalia.conf",
+    ],
     logo: Some("noctalia.svg"),
 };

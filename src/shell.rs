@@ -153,6 +153,32 @@ pub struct Identity {
     /// subtly wrong, which is the kind of fault nobody notices until later. Empty
     /// means the shell needs nothing else, which is the common case.
     pub companion_systemd_user_units: &'static [&'static str],
+    /// Files this shell renders into shared directories while it runs, relative
+    /// to `$HOME`.
+    ///
+    /// These are not installed by the switch. The shell produces them from its
+    /// own templates on every start — Noctalia renders `noctalia.css` for GTK and
+    /// a colour scheme for qt5ct/qt6ct — so they sit in directories shared with
+    /// everything else and outlive the shell that made them. `clean` removes them
+    /// on the way out for the same reason it removes `config_dir`: leaving the
+    /// previous shell's furniture in place is untidy, and the next shell has no
+    /// use for it.
+    ///
+    /// The safety is the same, not weaker: an entry is only deleted when this
+    /// switch's backup holds it byte for byte. That makes every path here
+    /// dependent on `backup_sources` walking it, which is why the four directories
+    /// Noctalia writes into — `gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct` — are
+    /// already in [`crate::switch::SHARED_PATHS`], and why
+    /// `every_generated_path_is_backed_up` in `src/tests/lib_registry.rs`
+    /// fails the suite rather than the switch.
+    ///
+    /// On [`Identity`] rather than [`Port`] because it is a fact about the
+    /// shell: the same templates write the same paths on every compositor.
+    ///
+    /// Empty is the usual answer. A shell that keeps itself inside its own
+    /// `config_dir` writes nothing into directories shared with anything else,
+    /// and three of the four registered shells are exactly that.
+    pub generated_paths: &'static [&'static str],
     /// File name inside the project `assets/` directory.
     pub logo: Option<&'static str>,
 }
@@ -248,6 +274,11 @@ pub struct Shell {
     /// replaces the live path outright rather than merging into it, so a shared
     /// directory such as `~/.local/share/applications` must never appear here.
     pub skel_extra_paths: &'static [&'static str],
+    /// See [`Identity::generated_paths`]. Kept on `Shell` for the same reason as
+    /// [`Self::backup_extra_paths`]: `clean` reads the shell being left behind
+    /// through `Shell`, so the paths it is allowed to remove have to travel with
+    /// it rather than be looked up again from the registry.
+    pub generated_paths: &'static [&'static str],
     /// See [`Port::backup_extra_paths`]. Kept here as well because a backup is
     /// taken from the live system and read back through `Shell`, so the paths a
     /// switch could destroy have to travel with the shell they belong to.
@@ -310,6 +341,7 @@ impl Shell {
             companion_systemd_user_units: identity.companion_systemd_user_units,
             install_plan: identity.install_plan,
             uninstall_plan: identity.uninstall_plan,
+            generated_paths: identity.generated_paths,
             logo: identity.logo,
 
             config_dir: port.config_dir,

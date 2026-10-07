@@ -607,8 +607,20 @@ fn the_real_noctalia_setup_backs_up_and_verifies() {
 
     // A real setup is hundreds of files; a handful means the walk stopped
     // early on something it should not have.
+    //
+    // That setup is legitimately gone on a machine that has been switched to
+    // another shell: `clean` takes the outgoing shell's config and state away,
+    // which is its job. So the size is conditioned on the config having been
+    // found rather than on anything about the walk. The walk itself still has
+    // to hold up either way — the launcher entry is deliberately left behind
+    // and is a file, which is the case every unit test above misses.
+    let setup_present = !backup
+        .manifest
+        .absent
+        .iter()
+        .any(|p| p.as_str() == ".config/noctalia");
     assert!(
-        backup.file_count() > 100,
+        backup.file_count() > if setup_present { 100 } else { 0 },
         "only {} files copied, expected the whole setup",
         backup.file_count()
     );
