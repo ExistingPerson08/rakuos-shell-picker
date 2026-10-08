@@ -64,6 +64,12 @@ pub const SHARED_PATHS: &[&str] = &[
 /// from `skel_extra_paths` instead would be wrong in the other direction — a file
 /// being installed is not the same question as a file needing to be kept.
 ///
+/// [`Shell::companion_paths`](crate::shell::Shell::companion_paths) travels with
+/// the shell for the same reason, one step further out: nothing installs a
+/// companion's data, so no switch would ever overwrite it — and yet without this
+/// list nothing would save it either, and leaving DMS would take the calendar
+/// database along with the packages.
+///
 /// `home` is passed in rather than read from the environment so the list can be
 /// checked without depending on whose session is running.
 pub fn backup_sources(
@@ -83,6 +89,7 @@ pub fn backup_sources(
             .into_iter()
             .flatten()
             .chain(shell.backup_extra_paths.iter().copied())
+            .chain(shell.companion_paths.iter().copied())
         {
             paths.push(home.join(relative));
         }

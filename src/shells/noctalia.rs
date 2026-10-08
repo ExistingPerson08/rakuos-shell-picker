@@ -36,6 +36,8 @@ pub const IDENTITY: Identity = Identity {
     // image's.
     uninstall_plan: None,
     companion_systemd_user_units: &[],
+    // No companions, so nothing of theirs to save or bring back.
+    companion_paths: &[],
     // Rendered by Noctalia itself from its own templates, not installed by the
     // switch — `[theme.templates] builtin_ids = ["gtk3", "gtk4", "hyprland",
     // "qt"]` writes all four on every start. DMS uses none of them, so they are

@@ -26,7 +26,7 @@ mengerjakan setiap langkah disebutkan supaya bisa diperiksa langsung.
 | 1 | **Preflight** — skel shell tujuan harus punya konfigurasi kompositor | `switch::prepare` step 2 | Berhenti. Belum ada backup. |
 | 2 | **Backup** | `switch::prepare` step 3 | Berhenti. Nol perubahan. |
 | 3 | **Install** (kalau shell tujuan punya rencana instalasi) | `switch::install` | Backup tetap utuh, tidak ada yang di-apply. |
-| 4 | **Apply**: plan → stage → stop lama → swap → start baru → verify | `apply::apply_with` | Rollback penuh (lihat bagian [Rollback](#rollback)). |
+| 4 | **Apply**: plan → stage → stop lama → **backup di-ulang** → swap → start baru → verify | `apply::apply_with` | Rollback penuh (lihat bagian [Rollback](#rollback)). |
 | 5 | **Clean** shell yang ditinggalkan → **reload** konfigurasi kompositor → **tunggu 5 detik** → **uninstall** paketnya | `apply::clean`, `Compositor::reload`, `switch::uninstall` | Tidak fatal — shell baru sudah hidup. |
 | 6 | **Logout** | `apply::logout` | Switch tetap berhasil; diminta logout manual. |
 
@@ -109,13 +109,31 @@ artinya tidak ada satu pun paket yang disentuh.
 `apply::plan` memutuskan dari mana setiap file diambil, dan aturannya tidak
 seragam:
 
-- **`~/.config/hypr` SELALU dari skel DMS**, tidak pernah dari backup. Kalau
-  direktori ini diambil dari backup, switch akan mengembalikan konfigurasi shell
-  lama dan dengan demikian membatalkan dirinya sendiri.
-- `config_dir` dan `state_dir`: **backup terbaru yang memegangnya**, fallback ke
-  skel. Inilah yang membuat pindah ke DMS lalu kembali ke Noctalia
-  mengembalikan susunan asli, bukan ke default.
-- `skel_extra_paths`: dari skel.
+- **`~/.config/hypr` SELALU dari skel shell tujuan**, tidak pernah dari backup.
+  Kalau direktori ini diambil dari backup, switch akan mengembalikan
+  konfigurasi shell lama dan dengan demikian membatalkan dirinya sendiri.
+- `config_dir`, `state_dir`, `companion_paths`, `skel_extra_paths` dan
+  `backup_extra_paths`: **backup yang namanya milik shell tujuan** (`…-<comp>-<id>
+  shell tujuan>`), fallback ke skel. Inilah yang membuat pindah ke DMS lalu
+  kembali ke Noctalia mengembalikan susunan asli, bukan ke default.
+
+Yang kedua itu aturan inti dan mudah salah paham, jadi alasannya ditulis di
+sini. Backup **terbaru secara keseluruhan bukan jawabannya**: direktori
+`20261008-hyprland-dms` dibuat ketika DMS ditinggalkan, jadi isinya adalah
+versi era DMS dari setiap file — `gtk.css` dengan
+`@import url("dank-colors.css")` yang tidak lagi ditulis siapa pun,
+`qt6ct.conf` menunjuk `matugen.conf`, `settings.ini` dengan tema DMS, dan
+launcher Noctalia bersimbol `NoDisplay=true`. Memasangnya kembali pada saat
+kembali ke Noctalia menyembunyikan Noctalia dari launcher dan membuat GTK
+mengimpor stylesheet yang tidak ada. Sedangkan `20261008-hyprland-noctalia`
+persis memegang era Noctalia dari file-file yang sama.
+
+Jadi pencariannya difilter dulu ke direktori yang namanya diakhiri
+`-<compositor>-<shell tujuan>`; di antara direktori itu, yang terbaru menang.
+Kalau tidak ada satupun — shell ini belum pernah ada di mesin ini — jatuh ke
+skel, yang berarti shell baru jalan dengan default-nya, bukan meminjam file dari
+era shell lain. Backup yang dibuat saat tidak ada shell jalan bernama
+`…-<comp>-none` dan ikut terlewat dengan sendirinya.
 
 ### 3b. Stage — salin semuanya dulu
 
@@ -159,6 +177,24 @@ Noctalia juga tidak punya companion, jadi tidak ada unit lain yang ikut.
 
 Kegagalan stop shell-nya sendiri di sini membatalkan switch **sebelum** ada satu
 pun file yang diganti.
+
+**Backup diambil ulang setelah stop** (`apply::refresh_backup`), ke direktori
+yang sama. Alasannya ada di urutannya: backup ditulis **sebelum install**,
+karena itulah yang membuat install bisa di-rollback — tapi artinya shell yang
+ditinggalkan masih hidup selama install berjalan, dan bisa menulis statedirnya
+sendiri di antara keduanya. Di mesin tempat ini pertama ditemukan, Noctalia
+menulis dua entri clipboard dan riwayat notifikasi di jendela itu, lalu `clean`
+menemukan backup yang tidak lagi menggambarkan file di disk — dan dengan benar
+**menyimpan** file itu, karena menghapus di atas backup yang basi adalah menebak.
+Hasilnya: switch selesai dengan menyisakan satu direktori yang katanya sudah
+dihapus.
+
+Stop menutup jendela itu: tidak ada yang bisa menulis state setelah prosesnya
+keluar, jadi salinan kedua berisi **apa pun yang terakhir ditulisnya**, dan syarat
+byte-for-byte di langkah 4 lolos karena alasan yang benar. Gagal mengambil ulang
+**tidak membatalkan** — backup lama tetap ada dan tetap terverifikasi, dan
+`clean` menyimpan setiap path yang berubah, persis perilaku sebelum baris ini
+ada.
 
 ### 3e. Swap — pindahkan dari staging
 
@@ -214,7 +250,11 @@ di-resume.
 
 Berhasil → asides dibuang, karena sekarang tidak ada lagi yang bisa rollback ke
 salinan tersebut. Pembuangan tetap diperiksa dulu: asides hanya dihapus kalau
-backup mereproduksinya byte-for-byte.
+**backup mana pun** mereproduksinya byte-for-byte. Bukan "backup terbaru" —
+mana pun, karena pertanyaannya satu-satunya apakah byte-nya aman di suatu
+tempat, dan menanyakan direktori terbaru justru menyisakan `.pre-*` yang sudah
+terverifikasi di disk (direktori terbaru milik shell yang baru masuk, sedangkan
+asidenya dari shell sebelumnya).
 
 ## 4. Clean
 
@@ -311,6 +351,9 @@ nama biasa tidak akan pernah menemukannya; cgroup-nya yang menemukan.
 Bersamaan itu companion **`dcal.service` ikut dihentikan**. `dankcalendar-git`
 akan dihapus pada langkah 5, jadi membiarkannya hidup berarti meninggalkan unit
 yang menunjuk ke binary yang sudah tidak ada.
+
+Sama seperti arah 1, backup **diambil ulang** setelah kedua unit berhenti —
+lihat [3d](#3d-stop-shell-lama) untuk alasannya.
 
 ### Start
 

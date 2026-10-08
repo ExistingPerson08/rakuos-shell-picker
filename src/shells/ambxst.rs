@@ -26,6 +26,8 @@ pub const IDENTITY: Identity = Identity {
     install_plan: None,
     uninstall_plan: None,
     companion_systemd_user_units: &[],
+    // No companions, so nothing of theirs to save or bring back.
+    companion_paths: &[],
     generated_paths: &[],
     discard_paths: &[],
     runtime_packages: &["quickshell", "quickshell-git"],

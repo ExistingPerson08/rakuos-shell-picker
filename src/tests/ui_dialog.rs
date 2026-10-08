@@ -37,6 +37,7 @@ static INSTALLED_IDLE: Shell = Shell {
     systemd_user_unit: None,
 
     companion_systemd_user_units: &[],
+    companion_paths: &[],
     skel_extra_paths: &[],
     generated_paths: &[],
     discard_paths: &[],
@@ -60,6 +61,7 @@ static NOT_INSTALLED: Shell = Shell {
     systemd_user_unit: None,
 
     companion_systemd_user_units: &[],
+    companion_paths: &[],
     skel_extra_paths: &[],
     generated_paths: &[],
     discard_paths: &[],
@@ -83,6 +85,7 @@ static ALREADY_RUNNING: Shell = Shell {
     systemd_user_unit: None,
 
     companion_systemd_user_units: &[],
+    companion_paths: &[],
     skel_extra_paths: &[],
     generated_paths: &[],
     discard_paths: &[],

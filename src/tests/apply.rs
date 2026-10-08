@@ -101,21 +101,22 @@ fn the_compositor_config_comes_from_the_skel_even_when_a_backup_has_one() {
 }
 
 #[test]
-fn a_shells_own_config_prefers_the_newest_backup_that_holds_it() {
-    // The rule the docs asked for, and the reason it is right for this path:
-    // a backup of DMS on this machine is the user's own arrangement of it.
+fn a_shells_own_config_comes_from_the_newest_backup_kept_for_it() {
+    // The rule `plan` runs on. A backup only ever describes the desktop as it
+    // was with the shell named at the end of it in charge, so among that
+    // shell's own backups the newest is the newest arrangement the user had.
     let t = Temp::new("own-from-backup");
     let backups = t.path().join("backups");
     let skel = t.path().join("skel");
 
     make_backup(
         &backups,
-        "20260101-000000-001",
+        "20260101-hyprland-dms",
         &[".config/DankMaterialShell"],
     );
     make_backup(
         &backups,
-        "20260202-000000-002",
+        "20260202-hyprland-dms",
         &[".config/DankMaterialShell"],
     );
     write(
@@ -135,16 +136,74 @@ fn a_shells_own_config_prefers_the_newest_backup_that_holds_it() {
         Origin::Backup(root) => {
             assert_eq!(
                 root.file_name().unwrap().to_string_lossy(),
-                "20260202-000000-002",
-                "the newest backup holding it must win"
+                "20260202-hyprland-dms",
+                "the newest backup kept for this shell must win"
             );
             assert_eq!(
                 marker(&own.src),
-                "20260202-000000-002:.config/DankMaterialShell"
+                "20260202-hyprland-dms:.config/DankMaterialShell"
             );
         }
         Origin::Skel => panic!("a backup holding it exists, so the skel must not be used"),
     }
+}
+
+#[test]
+fn a_backup_of_another_shell_is_never_read_for_this_shells_paths() {
+    // The reason the rule is "this shell's backups" and not "any backup holding
+    // it". After a switch away from DMS the newest directory on disk is DMS's,
+    // and it holds DMS's version of every shared file: a `gtk.css` importing
+    // `dank-colors.css`, and a launcher entry with `NoDisplay=true`. Reading it
+    // on the way back to Noctalia hides Noctalia behind the launcher and points
+    // GTK at a sheet no shell on the machine writes any more.
+    let t = Temp::new("foreign-backup");
+    let backups = t.path().join("backups");
+    let skel = t.path().join("skel");
+
+    // Newer, and it holds both Noctalia's config and a shared file — but it is
+    // a backup of DMS, so it is not an answer to either question.
+    make_backup(
+        &backups,
+        "20261008-hyprland-dms",
+        &[".config/noctalia", ".config/gtk-3.0/gtk.css"],
+    );
+    make_backup(
+        &backups,
+        "20261001-hyprland-noctalia",
+        &[".config/noctalia"],
+    );
+
+    write(
+        &skel.join(".config/gtk-3.0/gtk.css"),
+        "@import url(\"noctalia.css\")",
+    );
+    write(&skel.join(".config/hypr/config/autostart.lua"), "noctalia");
+
+    let mut said = Vec::new();
+    let entries = plan(&noctalia::SHELL, &Hyprland, &backups, &skel, &mut |line| {
+        said.push(line.to_string())
+    })
+    .unwrap();
+
+    let own = entries
+        .iter()
+        .find(|e| e.rel == ".config/noctalia")
+        .unwrap();
+    assert_eq!(
+        own.origin,
+        Origin::Backup(backups.join("20261001-hyprland-noctalia")),
+        "the backup of the shell coming back, not the newest one on disk"
+    );
+
+    let gtk = entries
+        .iter()
+        .find(|e| e.rel == ".config/gtk-3.0/gtk.css")
+        .unwrap();
+    assert_eq!(
+        gtk.origin,
+        Origin::Skel,
+        "only Noctalia's own skel may write the import Noctalia runs on: {said:?}"
+    );
 }
 
 #[test]
@@ -604,6 +663,21 @@ fn an_aside_is_discarded_only_when_a_backup_reproduces_it_byte_for_byte() {
     );
     write(&backups.join("20261006-hyprland-dms/manifest.toml"), "");
 
+    // A newer backup of the other shell, holding a different bytes at the same
+    // path. It is the one a lookup for "the newest backup holding this" would
+    // return, and it is the reason that lookup was wrong: the bytes of a copy
+    // have nothing to do with which shell the directory is named after, so
+    // insisting on the newest left a verified `.pre-*` file on disk that
+    // nothing would ever read again.
+    write(
+        &backups.join("20261007-hyprland-noctalia/home/.config/gtk-3.0/settings.ini"),
+        "[Settings]\nnoctalia had other ideas",
+    );
+    write(
+        &backups.join("20261007-hyprland-noctalia/manifest.toml"),
+        "",
+    );
+
     let identical = home.join(".config/gtk-3.0/.settings.ini.pre-dms-20261006-102219");
     write(&identical, "[Settings]");
     let different = home.join(".config/gtk-4.0/.gtk.css.pre-dms-20261006-102219");
@@ -682,7 +756,7 @@ fn a_shells_state_comes_back_from_the_backup_that_holds_it() {
 
     make_backup(
         &backups,
-        "20261006-hyprland-dms",
+        "20261006-hyprland-noctalia",
         &[".local/state/noctalia"],
     );
 
@@ -701,7 +775,7 @@ fn a_shells_state_comes_back_from_the_backup_that_holds_it() {
         .expect("a backup that holds the state must be planned, or cleaning it loses it");
     assert_eq!(
         state.origin,
-        Origin::Backup(backups.join("20261006-hyprland-dms"))
+        Origin::Backup(backups.join("20261006-hyprland-noctalia"))
     );
 }
 
@@ -765,9 +839,14 @@ fn the_outgoing_shells_own_files_are_cleaned_once_the_backup_reproduces_them() {
 
     let mut said = Vec::new();
     assert_eq!(
-        clean(&dms::SHELL, &noctalia::SHELL, &home, &backup, &mut |line| {
-            said.push(line.to_string())
-        }),
+        clean(
+            &dms::SHELL,
+            &noctalia::SHELL,
+            &home,
+            backup.parent().unwrap(),
+            &backup,
+            &mut |line| { said.push(line.to_string()) }
+        ),
         (2, 0),
         "both paths are in the backup byte for byte, so both may go"
     );
@@ -811,9 +890,14 @@ fn something_with_no_data_in_it_is_discarded_without_a_backup() {
 
     let mut said = Vec::new();
     assert_eq!(
-        clean(&dms::SHELL, &noctalia::SHELL, &home, &backup, &mut |line| {
-            said.push(line.to_string())
-        }),
+        clean(
+            &dms::SHELL,
+            &noctalia::SHELL,
+            &home,
+            backup.parent().unwrap(),
+            &backup,
+            &mut |line| { said.push(line.to_string()) }
+        ),
         (3, 0),
         "no copy of any of it exists and none is needed"
     );
@@ -866,9 +950,14 @@ fn a_path_the_backup_does_not_reproduce_is_kept_when_the_shell_leaves() {
 
     let mut said = Vec::new();
     assert_eq!(
-        clean(&dms::SHELL, &noctalia::SHELL, &home, &backup, &mut |line| {
-            said.push(line.to_string())
-        }),
+        clean(
+            &dms::SHELL,
+            &noctalia::SHELL,
+            &home,
+            backup.parent().unwrap(),
+            &backup,
+            &mut |line| { said.push(line.to_string()) }
+        ),
         (1, 1),
         "only the path the backup still describes may go"
     );
@@ -909,12 +998,232 @@ fn a_shell_never_cleans_a_path_the_shell_being_switched_to_owns() {
     };
 
     assert_eq!(
-        clean(&dms::SHELL, &thief, &home, &backup, &mut |_| {}),
+        clean(
+            &dms::SHELL,
+            &thief,
+            &home,
+            backup.parent().unwrap(),
+            &backup,
+            &mut |_| {},
+        ),
         (0, 1)
     );
     assert!(
         home.join(".config/DankMaterialShell/settings.json")
             .exists(),
         "the path the target owns must be left for the target to write"
+    );
+}
+
+#[test]
+fn clean_refuses_any_path_that_reaches_the_backups() {
+    // The registry test says no declared path sits anywhere near the backups;
+    // this is the other half — the refusal itself, exercised. It matters that
+    // the refusal fires *before* the byte-for-byte check, because that check
+    // cannot be relied on here: a path above the backups would have to be
+    // compared against a copy the backup never takes, and the day it did compare
+    // equal, the deletion would take the recovery copies with the config. The
+    // refusal is what makes the answer independent of the comparison.
+    let t = Temp::new("clean-reaches-backups");
+    let home = t.path().join("home");
+    let backups = home.join(".local/share/backups");
+    let backup = backups.join("20261006-hyprland-noctalia");
+
+    write(&home.join(".local/share/dankcal/dankcal.db"), "database");
+    write(
+        &backup.join("home/.local/share/dankcal/dankcal.db"),
+        "database",
+    );
+
+    // A shell wrongly declaring one directory above the backups as its config.
+    let sinner = Shell {
+        config_dir: Some(".local/share"),
+        state_dir: None,
+        ..noctalia::SHELL
+    };
+
+    let mut said = Vec::new();
+    assert_eq!(
+        clean(
+            &sinner,
+            &dms::SHELL,
+            &home,
+            &backups,
+            &backup,
+            &mut |line| said.push(line.to_string()),
+        ),
+        (0, 1)
+    );
+    assert!(
+        said.iter().any(|l| l.contains("reaches the backups")),
+        "the refusal must say why it refused, not fall through to the byte check"
+    );
+    assert!(
+        home.join(".local/share/backups/20261006-hyprland-noctalia")
+            .exists(),
+        "the backups themselves are the one thing a switch never cleans"
+    );
+}
+
+#[test]
+fn the_backup_is_taken_again_after_the_shell_stops_so_its_state_can_go() {
+    // The window this closes: the backup is written before anything is
+    // installed, which is the order that makes the install reversible, and the
+    // shell being left runs through the whole install. Noctalia wrote to its own
+    // state in that window on the machine this was found on, `clean` then found
+    // a backup that no longer described the file and quite correctly kept the
+    // file — and the switch finished with a state directory it had just said it
+    // removed. Stopping the shell ends the window, and taking the same sources
+    // into the same directory once more makes the backup describe the file as it
+    // was left, so the path goes like every other one.
+    let t = Temp::new("refresh");
+    let home = t.path().join("home");
+    let backups = t.path().join("backups");
+    let name = "20261008-hyprland-noctalia";
+
+    write(
+        &home.join(".local/state/noctalia/clipboard/index.enc"),
+        "before",
+    );
+    let sources = crate::switch::backup_sources(&home, &Hyprland, Some(&noctalia::SHELL));
+    crate::backup::Backup::create(&backups, name, &sources, &home).unwrap();
+    let backup_root = backups.join(name);
+
+    // What the shell wrote while the install was running.
+    write(
+        &home.join(".local/state/noctalia/clipboard/index.enc"),
+        "after",
+    );
+
+    let mut said = Vec::new();
+    refresh_backup(
+        &noctalia::SHELL,
+        &home,
+        &backups,
+        &backup_root,
+        &Hyprland,
+        &mut |line| said.push(line.to_string()),
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(backup_root.join("home/.local/state/noctalia/clipboard/index.enc"))
+            .unwrap(),
+        "after",
+        "the copy has to be what the shell last wrote, not what it wrote before the install"
+    );
+    assert!(said
+        .iter()
+        .any(|l| l.contains("took the backup again now that Noctalia has stopped")));
+
+    assert_eq!(
+        clean(
+            &noctalia::SHELL,
+            &dms::SHELL,
+            &home,
+            backup_root.parent().unwrap(),
+            &backup_root,
+            &mut |line| said.push(line.to_string())
+        ),
+        (1, 0),
+        "the backup now describes the file, so the state goes"
+    );
+    assert!(
+        !home.join(".local/state/noctalia").exists(),
+        "leaving a shell must not leave its state behind in the home"
+    );
+}
+
+#[test]
+fn a_companions_data_comes_back_from_the_backup_when_the_shell_returns() {
+    // Nothing installs a calendar database, so no skel carries it: the backup
+    // kept for DMS is the only source there is. A backup of the other shell
+    // that happens to hold the same path is not a source at all — it holds
+    // whatever was on disk with Noctalia in charge, which for this path means
+    // nothing DMS would recognise.
+    let t = Temp::new("companion-from-backup");
+    let backups = t.path().join("backups");
+    let skel = t.path().join("skel");
+
+    make_backup(&backups, "20260101-hyprland-dms", &[".local/share/dankcal"]);
+    make_backup(
+        &backups,
+        "20261008-hyprland-noctalia",
+        &[".local/share/dankcal"],
+    );
+    write(&skel.join(".config/hypr/config/autostart.lua"), "dms");
+
+    let mut said = Vec::new();
+    let entries = plan(&dms::SHELL, &Hyprland, &backups, &skel, &mut |line| {
+        said.push(line.to_string())
+    })
+    .unwrap();
+
+    let data = entries
+        .iter()
+        .find(|e| e.rel == ".local/share/dankcal")
+        .expect("DMS's own backup holds the calendar, so it must be planned");
+    assert_eq!(
+        data.origin,
+        Origin::Backup(backups.join("20260101-hyprland-dms")),
+        "the backup kept for DMS, not the newest one on disk"
+    );
+
+    // Nothing holds this one and no skel carries it. Not fatal, and not
+    // silent: a calendar that did not come back is worth saying out loud.
+    assert!(!entries.iter().any(|e| e.rel == ".config/dankcal"));
+    assert!(
+        said.iter()
+            .any(|l| l.contains("DankMaterialShell starts without it")),
+        "the panel has to say the companion data was not brought back: {said:?}"
+    );
+}
+
+#[test]
+fn a_companions_data_goes_only_when_this_switchs_backup_reproduces_it() {
+    // The same byte-for-byte rule `config_dir` is held to, because that is what
+    // these paths are: data. The empty directory is in here deliberately — a
+    // directory with nothing in it has nothing to lose either, and the backup
+    // records it as present, so it has to be matched rather than left behind as
+    // the one piece of the shell that never goes.
+    let t = Temp::new("companion-clean");
+    let home = t.path().join("home");
+    let backup = t.path().join("backups/20261006-hyprland-dms");
+
+    write(&home.join(".local/share/dankcal/dankcal.db"), "database");
+    write(
+        &backup.join("home/.local/share/dankcal/dankcal.db"),
+        "database",
+    );
+    std::fs::create_dir_all(home.join(".config/dankcal")).unwrap();
+    std::fs::create_dir_all(backup.join("home/.config/dankcal")).unwrap();
+    write(&home.join(".config/dgop/colors.json"), "the live palette");
+    write(
+        &backup.join("home/.config/dgop/colors.json"),
+        "what the backup took",
+    );
+
+    assert_eq!(
+        clean(
+            &dms::SHELL,
+            &noctalia::SHELL,
+            &home,
+            backup.parent().unwrap(),
+            &backup,
+            &mut |_| {}
+        ),
+        (2, 1),
+        "the database and the empty directory go, the palette that moved on stays"
+    );
+    assert!(
+        !home.join(".local/share/dankcal").exists(),
+        "leaving DMS must not leave its companions' data in the home"
+    );
+    assert!(
+        !home.join(".config/dankcal").exists(),
+        "an empty companion directory is still the shell's to remove"
+    );
+    assert!(
+        home.join(".config/dgop/colors.json").exists(),
+        "a file the backup no longer describes must be kept, not deleted"
     );
 }

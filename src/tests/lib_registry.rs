@@ -283,6 +283,11 @@ fn one_identity_serves_every_compositor_offering_that_shell() {
                 shell.id
             );
             assert_eq!(
+                shell.companion_paths, identity.companion_paths,
+                "{} companion paths",
+                shell.id
+            );
+            assert_eq!(
                 shell.runtime_packages, identity.runtime_packages,
                 "{} runtime packages",
                 shell.id
@@ -607,6 +612,91 @@ fn every_generated_path_is_backed_up() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn every_companion_path_is_backed_up() {
+    // The third leg of the same rule. `clean` will not delete a companion's
+    // data unless this switch's backup reproduces it byte for byte, so a path
+    // outside everything `backup_sources` walks would be kept forever and
+    // reported as such — the data would survive, but as one more piece of the
+    // shell that never goes away. The deeper reason for the test is the check
+    // itself: the day somebody loosens it, an uncovered entry becomes a delete
+    // with no copy anywhere, and a calendar database is not a thing that
+    // regenerates.
+    let home = std::path::PathBuf::from("/home/tester");
+    for compositor in super::compositor::all() {
+        for shell in compositor.shells() {
+            let saved: Vec<String> = crate::switch::backup_sources(&home, compositor, Some(shell))
+                .iter()
+                .map(|p| {
+                    p.strip_prefix(&home)
+                        .expect("every backup path is inside home")
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            for rel in shell.companion_paths {
+                let covered = saved.iter().any(|s| {
+                    rel == s
+                        || rel.starts_with(&format!("{s}/"))
+                        || s.starts_with(&format!("{rel}/"))
+                });
+                assert!(
+                    covered,
+                    "{}/{} keeps {rel} for its companions but never backs it up: \
+                     it has to sit inside a path backup_sources already walks",
+                    compositor.id(),
+                    shell.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn no_declared_path_can_reach_the_backups() {
+    // The backups are what every removal in `clean` is measured against, so they
+    // are the one thing on the other side of it that must never be reached. Two
+    // ways to reach them, both fatal: a path sitting *inside* them, treated as a
+    // shell's own, and a path *containing* them — `.local/share` would take the
+    // whole tree. The byte-for-byte check does not save the second case either,
+    // because the backup does contain itself.
+    //
+    // Nothing declared today is anywhere near `~/.local/share/backups`. This is
+    // the half of the guarantee that fails in the suite rather than in a switch:
+    // the registry cannot grow a path one directory too high without saying so,
+    // and `clean` refuses on its own side whatever still gets past here.
+    let home = PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
+    let backups = crate::session::State::backups_dir();
+
+    let mut declared: BTreeSet<&str> = BTreeSet::new();
+    declared.extend(crate::switch::SHARED_PATHS.iter().copied());
+    for compositor in compositor::all() {
+        declared.insert(compositor.config_dir());
+        for shell in compositor.shells() {
+            declared.extend([shell.config_dir, shell.state_dir].into_iter().flatten());
+            declared.extend(shell.skel_extra_paths.iter().copied());
+            declared.extend(shell.backup_extra_paths.iter().copied());
+            declared.extend(shell.generated_paths.iter().copied());
+            declared.extend(shell.companion_paths.iter().copied());
+            declared.extend(shell.discard_paths.iter().copied());
+        }
+    }
+
+    for rel in declared {
+        let live = home.join(rel);
+        assert!(
+            !live.starts_with(&backups),
+            "{rel} sits inside the backups at {}",
+            backups.display()
+        );
+        assert!(
+            !backups.starts_with(&live),
+            "{rel} contains the backups at {}; removing it would take them too",
+            backups.display()
+        );
     }
 }
 

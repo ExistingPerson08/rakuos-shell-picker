@@ -153,6 +153,32 @@ pub struct Identity {
     /// subtly wrong, which is the kind of fault nobody notices until later. Empty
     /// means the shell needs nothing else, which is the common case.
     pub companion_systemd_user_units: &'static [&'static str],
+    /// Data paths belonging to this shell's companion programs, relative to
+    /// `$HOME`.
+    ///
+    /// Not the companions themselves — those are
+    /// [`Self::companion_systemd_user_units`] — but where they keep what a person
+    /// would want back. DMS's calendar is `dankcalendar-git`, and it owns
+    /// `~/.local/share/dankcal` (its database and keyring) and
+    /// `~/.local/state/dankcal`; `dgop` owns `~/.config/dgop`. Nothing installs
+    /// these: the programs write them the first time they run, so no skel carries
+    /// them and a switch that ignored them would drop the calendar on the floor
+    /// the moment DMS left.
+    ///
+    /// Handled like [`Self::generated_paths`] and not like
+    /// [`Self::discard_paths`]: backed up with the shell, taken off the machine on
+    /// the way out only when this switch's backup reproduces them byte for byte,
+    /// and read back by `plan` when the shell comes home. The data is real — a
+    /// calendar database is not something a restart rebuilds — which is exactly
+    /// the property [`Self::generated_paths`] is checked for, and the reason the
+    /// no-data shortcut [`Self::discard_paths`] allows must not be taken here.
+    ///
+    /// On [`Identity`] rather than [`Port`] because it is a fact about the shell:
+    /// the same programs keep the same paths on every compositor.
+    ///
+    /// Empty is the usual answer: a shell with no companions has nothing to
+    /// declare, and three of the four registered shells are exactly that.
+    pub companion_paths: &'static [&'static str],
     /// Files this shell renders into shared directories while it runs, relative
     /// to `$HOME`.
     ///
@@ -313,6 +339,11 @@ pub struct Shell {
     /// subtly wrong, which is the kind of fault nobody notices until later. Empty
     /// means the shell needs nothing else, which is the common case.
     pub companion_systemd_user_units: &'static [&'static str],
+    /// See [`Identity::companion_paths`]. Kept on `Shell` for the same reason as
+    /// [`Self::generated_paths`]: both `clean` and `plan` read the shell they are
+    /// working on through `Shell`, so the paths a companion program owns have to
+    /// travel with the shell rather than be looked up again from the registry.
+    pub companion_paths: &'static [&'static str],
     /// Other paths, relative to `$HOME`, that this shell's skel also carries.
     ///
     /// The compositor config and `config_dir` are handled by name, because where
@@ -400,6 +431,7 @@ impl Shell {
             binary: identity.binary,
             start_argv: identity.start_argv,
             companion_systemd_user_units: identity.companion_systemd_user_units,
+            companion_paths: identity.companion_paths,
             install_plan: identity.install_plan,
             uninstall_plan: identity.uninstall_plan,
             generated_paths: identity.generated_paths,

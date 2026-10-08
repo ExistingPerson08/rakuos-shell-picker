@@ -193,20 +193,28 @@ Urutan satu-satunya yang boleh dipakai:
                  pkexec rum install -y --refresh <paket>,
                  hanya untuk paket yang memang belum ada
                                              <- gagal di sini, switch dibatalkan
-  6. terapkan skel : config shell target dan ~/.config/hypr diganti penuh dari
-                     skel; file yang diganti disimpan dulu sebagai .pre-*,
-                     dibuang lagi setelah langkah 9 berhasil
+  6. terapkan skel : config shell target, file skel bersama dan ~/.config/hypr
+                     diganti penuh; yang diambil dari backup milik shell target
+                     kalau ada, kalau tidak dari skel — kecuali ~/.config/hypr
+                     yang SELALU dari skel; file yang diganti disimpan dulu
+                     sebagai .pre-*, dibuang lagi setelah langkah 9 berhasil
   7. stop      : shell lama diberi SIGTERM -> ditunggu -> batas waktu -> kill -9
                  hanya sebagai upaya terakhir
+  7b. backup-ulang: backup diambil sekali lagi ke direktori yang sama, karena
+                 shell lama sudah berhenti dan tidak bisa lagi menulis apa yang
+                 langkah 3 simpan saat ia masih hidup; salinan keduanya berisi
+                 apa yang terakhir ia tulis, sehingga langkah 12 menemukan
+                 backup yang benar-benar menggambarkan file di disk
+                                             <- gagal di sini TIDAK membatalkan
   8. start     : shell baru, sesuai StartMechanism-nya
   9. verify    : shell baru benar-benar hidup dalam batas waktu
  10. state     : tulis active/previous
  11. ROLLBACK  : kalau langkah 8/9 gagal, start lagi shell lama dan kembalikan
                  config dari backup
- 12. bersih    : .pre-* yang direproduksi backup dibuang; lalu config, state
-                 dan tema hasil render shell keluar dihapus — hanya yang
-                 backup switch ini gambarkan byte untuk byte, sisanya
-                 disimpan dan alasannya dilaporkan
+ 12. bersih    : .pre-* yang direproduksi backup mana pun dibuang; lalu config,
+                 state, data companion dan tema hasil render shell keluar
+                 dihapus — hanya yang backup switch ini gambarkan byte untuk
+                 byte, sisanya disimpan dan alasannya dilaporkan
                  <- gagal di sini TIDAK membatalkan; switch sudah sukses
  13. hapus paket: pkexec rum remove -y, hanya paket milik shell keluar, hanya
                  kalau shell itu punya uninstall_plan
@@ -321,6 +329,29 @@ disentuh.
 Launcher tidak dibersihkan: kedua shell memasangnya dari skel masing-masing,
 jadi shell berikutnya sudah menimpanya sendiri.
 
+Daftar keenam ikut dibersihkan **dan** ikut di-backup, `companion_paths`: data
+yang dimiliki program pendamping shell, bukan shell-nya sendiri. DMS berjalan
+bersama `dankcalendar-git`, yang punya `~/.local/share/dankcal` (basis data
+kalendernya dan keyring) dan `~/.local/state/dankcal`, dan `dgop`, yang punya
+`~/.config/dgop`. Tidak ada yang menginstal jalur-jalur ini: program
+menulisnya sendiri pada pertama kali jalan, jadi skel tidak membawanya — dan
+tanpa daftar ini, meninggalkan DMS berarti membawa kalender pergi bersama
+paketnya tanpa satu salinan pun tertinggal.
+
+Perlakuannya sama dengan `generated_paths`, bukan dengan `discard_paths`:
+di-backup bersama shell itu, dihapus setelah switch hanya kalau backup switch
+ini mereproduksinya byte untuk byte, dan dibaca balik oleh `plan` saat shell itu
+pulang. Kalender bukan sesuatu yang bisa dibangun start berikutnya, jadi jalan
+pintas "tidak ada data di sini" yang `discard_paths` izinkan tidak boleh
+dipakai — dan memang dicegah: `every_companion_path_is_backed_up` menggagalkan
+suite kalau ada jalur di daftar ini yang tidak dijelajahi `backup_sources`.
+Guard pemilik tetap berlaku, termasuk untuk dua shell yang mendeklarasikan
+companion path yang sama.
+
+Dengan begitu daftar DMS untuk switch keluar berjumlah dua belas (delapan di
+tabel plus empat companion); Noctalia, Caelestia dan Ambxst tanpa companion
+tetap delapan.
+
 ### Apa yang boleh ditimpa, dan apa yang tidak
 
 - **Config milik shell itu sendiri boleh diganti penuh** setelah backup
@@ -379,7 +410,12 @@ digagalkan — switch yang sudah sampai di sini sudah sukses, jadi berantakan
 bukan alasan untuk membongkarnya kembali:
 
 1. **`.pre-*`** yang tadi disingkirkan, dibuang (`discard_asides`). Hanya yang
-   reproduksinya cocok dengan backup; yang tidak, disimpan.
+   reproduksinya cocok dengan **backup mana pun**; yang tidak, disimpan. Bukan
+   "backup terbaru": pertanyaannya satu-satunya apakah byte-nya masih aman di
+   suatu tempat, dan menuntut direktori terbaru justru menyisakan salinan yang
+   sudah terverifikasi sebagai `.pre-*` yang tidak akan pernah dibaca lagi —
+   direktori terbaru saat itu milik shell yang baru masuk, asidenya dari shell
+   sebelumnya.
 2. **config dan state shell keluar** (`config_dir` + `state_dir`) dihapus.
    Syaratnya ketat: backup untuk switch ini harus berisi path itu dengan jumlah
    file dan byte yang sama. Tidak cocok, tidak dihapus. Karena dua field itu
@@ -388,6 +424,16 @@ bukan alasan untuk membongkarnya kembali:
    pemulihan sekaligus.
 3. **paket shell keluar**, kalau shell itu punya `uninstall_plan`, lewat
    `pkexec rum remove -y`.
+
+Satu syarat berlaku untuk ketiganya, terutama untuk poin 2: **tidak ada
+penghapusan yang boleh menyentuh backup.** `clean` menolak path yang berada di
+dalam `~/.local/share/backups/` maupun path yang mengandungnya — `.local/share`
+yang salah deklarasi akan membawa seluruh recovery copy pergi bersama
+config-nya, dan pemeriksaan jumlah byte tidak menolaknya karena backup memang
+berisi dirinya sendiri. Ada dua penjaga untuk ini: `clean` menolak
+beroperasi pada path seperti itu (`refuses ...; it reaches the backups`), dan
+test `no_declared_path_can_reach_the_backups` menggagalkan suite begitu ada
+deklarasi yang berada terlalu tinggi di pohon direktori.
 
 `state_dir` ikut dipulihkan dari backup oleh `plan` persis seperti
 `config_dir`. Tanpa itu, Noctalia akan kehilangan 389 dari 445 file miliknya
@@ -468,6 +514,11 @@ Switch menulis tiga kelompok path, dan ketiganya harus punya backup:
 | `config_dir` + `state_dir` shell | `Port`, otomatis |
 | `skel_extra_paths` | `Port::skel_extra_paths` |
 | `backup_extra_paths` | `Port::backup_extra_paths`, per shell |
+
+Satu daftar di luar tabel: `companion_paths` (`Identity`), yang bukan ditulis
+switch melainkan oleh program pendamping saat pertama kali jalan. Tetap wajib
+disimpan dengan alasan yang sama — tidak ada jalan kembali setelah paketnya
+ikut dihapus — dan dikunci oleh `every_companion_path_is_backed_up`.
 
 Dua kelompok terakhir yang paling mudah terlewat. `skel_extra_paths` adalah daftar file yang
 ditimpa, jadi setiap isinya wajib ada di backup. Dulu daftar backup diturunkan

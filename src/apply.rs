@@ -6,7 +6,8 @@
 //! 1. work out where each path comes from, and say so out loud;
 //! 2. build the replacement in a staging directory and count it;
 //! 3. confirm the backup that makes all of this reversible is still on disk;
-//! 4. stop the old shell;
+//! 4. stop the old shell, and take its backup again now that it can no longer
+//!    write to what the first copy recorded;
 //! 5. swap, which is a pair of renames inside one filesystem;
 //! 6. start the new shell;
 //! 7. check it actually came up;
@@ -331,6 +332,7 @@ pub fn apply_with(
                 rolled_back: false,
             };
         }
+        refresh_backup(shell, home, backups_root, backup_root, compositor, progress);
     }
 
     let asides = match swap(&entries, &staging, home, target.id, &stamp, progress) {
@@ -403,7 +405,7 @@ pub fn apply_with(
     // succeeded, and a file or a package that would not go away leaves the
     // machine dirtier than asked, not broken.
     if let Some(outgoing) = current {
-        let (cleaned, held) = clean(outgoing, target, home, backup_root, progress);
+        let (cleaned, held) = clean(outgoing, target, home, backups_root, backup_root, progress);
         if cleaned > 0 {
             progress(&format!(
                 "cleaned {cleaned} path(s) belonging to {}",
@@ -459,14 +461,12 @@ pub fn apply_with(
                         "stage {stage} could not remove {}: {status}",
                         outgoing.display_name
                     );
-                    crate::logging::warn(&line);
                     progress(&line);
                 }
                 crate::switch::Removed::Malformed { package } => {
                     let line = format!(
                         "the removal plan for {package} names no packages, so nothing was removed"
                     );
-                    crate::logging::error(&line);
                     progress(&line);
                 }
             }
@@ -497,16 +497,25 @@ pub fn apply_with(
 
 /// Work out where each path comes from.
 ///
-/// The rule the docs asked for is "newest backup first, skel as the fallback",
-/// and it is right for a shell's own configuration: if this machine has run DMS
-/// before, that backup holds how the user had it arranged, which is exactly what
-/// should come back.
+/// The rule is "the backup kept for this shell, skel as the fallback", and it is
+/// right for a shell's own configuration for two reasons at once: if this machine
+/// has run DMS before, that backup holds how the user had it arranged — and it
+/// holds *DMS's* era of the shared files too, which is what makes it safe to
+/// restore `gtk.css` from it. The newest backup overall would be the one taken
+/// when the shell currently in charge left, and its `gtk.css` still imports the
+/// stylesheet of a shell that is not running any more.
+///
+/// Hence `backups_for` rather than a search for any backup holding the path: the
+/// directory name says which shell was in charge, and only that shell's era of a
+/// file belongs on the way back to it. A shell that has never been on this
+/// machine has no backup of its own, and then the skel is the answer — a fresh
+/// install on defaults, not a file borrowed from somebody else's era.
 ///
 /// It is the wrong rule for the compositor's configuration, and applying it there
 /// would quietly undo the switch. `~/.config/hypr` is in every backup, because
-/// every switch saves it — so "newest backup first" hands back the copy that
-/// launches the shell being replaced, noctalia and all. That file is where the
-/// shell is started from, so it has to come from the target's own skel.
+/// every switch saves it — so even a backup of the right shell holds a config
+/// from whenever it was taken, while that file is where the shell is started
+/// from. It has to come from the target's own skel.
 fn plan(
     target: &Shell,
     compositor: &dyn Compositor,
@@ -515,18 +524,18 @@ fn plan(
     progress: &mut dyn FnMut(&str),
 ) -> Result<Vec<Entry>, String> {
     let mut entries = Vec::new();
+    let own = backups_for(backups_root, compositor.id(), target.id);
 
     if let Some(rel) = target.config_dir {
-        if let Some(entry) = pull(
+        pull_into(
+            &mut entries,
             rel,
-            backups_root,
+            &own,
             skel,
             false,
             &format!("{} will start on its own defaults", target.display_name),
             progress,
-        ) {
-            entries.push(entry);
-        }
+        );
     }
 
     // State is the same question as configuration, and it has to be asked the
@@ -536,45 +545,71 @@ fn plan(
     // exactly what happened while nothing deleted it, since the files simply
     // stayed on disk.
     if let Some(rel) = target.state_dir {
-        if let Some(entry) = pull(
+        pull_into(
+            &mut entries,
             rel,
-            backups_root,
+            &own,
             skel,
             true,
             &format!("{} starts with no state carried over", target.display_name),
             progress,
-        ) {
-            entries.push(entry);
-        }
+        );
     }
 
-    // The compositor's configuration decides how the shell gets started, so it
-    // is taken from the target's skel and never from a backup. See above.
+    // What the companions left behind when this shell was last in charge. No
+    // skel carries it — nothing installs a calendar database — so the backup is
+    // the only source there is, and "the skel does not have it" is the ordinary
+    // answer on a machine that has never run this shell. Said out loud, because
+    // a missing calendar is not something the user should have to discover.
+    for rel in target.companion_paths {
+        pull_into(
+            &mut entries,
+            rel,
+            &own,
+            skel,
+            true,
+            &format!("{} starts without it", target.display_name),
+            progress,
+        );
+    }
+
     // The rest of what the skel carries: themes, runtime state, and the launcher
     // entries. A path listed here may be a single file, which is what lets one
     // shell replace the other's `.desktop` without either of them owning the
     // directory it lives in.
+    //
+    // The backup of this shell still wins over the skel, and that is now the
+    // point rather than an accident: these are the files two shells share and
+    // both install, so the backup of the right shell is the only copy that
+    // matches the shell coming back. A backup that does not hold one — the path
+    // was added later, or the directory was empty that day — falls through to the
+    // skel, which is what "skel as the fallback" means.
     for rel in target.skel_extra_paths {
-        let rel = rel.trim_start_matches("./").to_string();
-        let src = skel.join(&rel);
-        if !src.exists() {
-            // Said out loud rather than fatal. An extra path is a refinement, not
-            // the thing that makes the switch work, so a stale entry in the shell's
-            // own declaration should not be able to block a switch the user needs.
-            // The only fatal case is the compositor config below, because that file
-            // is what starts the shell.
-            progress(&format!(
-                "skipped {rel}: {} lists it, but its skel does not carry it",
-                target.display_name
-            ));
-            continue;
-        }
-        progress(&format!("{rel} comes from the skel"));
-        entries.push(Entry {
+        pull_into(
+            &mut entries,
             rel,
-            src,
-            origin: Origin::Skel,
-        });
+            &own,
+            skel,
+            true,
+            "nothing to install, and the switch goes on",
+            progress,
+        );
+    }
+
+    // Paths a switch writes that nothing else would have backed up. Usually the
+    // same launcher entry as above, which the dedup above already took care of;
+    // listed separately because "being installed" and "needing to be kept" are
+    // not the same question.
+    for rel in target.backup_extra_paths {
+        pull_into(
+            &mut entries,
+            rel,
+            &own,
+            skel,
+            true,
+            "nothing to install, and the switch goes on",
+            progress,
+        );
     }
 
     let comp_rel = compositor.config_dir().trim_start_matches("./").to_string();
@@ -599,12 +634,39 @@ fn plan(
     Ok(entries)
 }
 
+/// Pull one path through [`pull`] and add it, unless the plan already has it.
+///
+/// Deduplicated by path because the same file is legitimately listed twice — the
+/// launcher entry is in `skel_extra_paths` because a switch installs it and in
+/// `backup_extra_paths` because nothing else would save it — and the swap would
+/// otherwise stage and replace it twice from two sources that may disagree.
+fn pull_into(
+    entries: &mut Vec<Entry>,
+    rel: &str,
+    own: &[PathBuf],
+    skel: &Path,
+    allow_file: bool,
+    empty: &str,
+    progress: &mut dyn FnMut(&str),
+) {
+    if entries.iter().any(|e| e.rel == rel) {
+        return;
+    }
+    if let Some(entry) = pull(rel, own, skel, allow_file, empty, progress) {
+        entries.push(entry);
+    }
+}
+
 /// Where one of a shell's own paths comes from.
 ///
-/// Newest backup first and the skel as the fallback, which is the right answer
-/// for anything belonging to a shell rather than to the session: if this machine
-/// has run that shell before, the backup holds how the user had it arranged, and
-/// that is what should come back. The compositor's configuration is the one
+/// The backups kept for this shell first, and the skel as the fallback, which is
+/// the right answer for anything belonging to a shell rather than to the session:
+/// if this machine has run that shell before, its backup holds how the user had
+/// it arranged, and that is what should come back. `own` is filtered by
+/// [`backups_for`] before it gets here, so a path this shell never had falls
+/// through to the skel instead of picking up another shell's version of it — the
+/// difference between `@import url("noctalia.css")` and a stylesheet no shell on
+/// the machine writes any more. The compositor's configuration is the one
 /// exception and is handled by name in [`plan`] instead.
 ///
 /// `allow_file` is for paths whose skel copy may be a single file rather than a
@@ -614,30 +676,35 @@ fn plan(
 /// here, because the fatal case is the compositor's own configuration below.
 fn pull(
     rel: &str,
-    backups_root: &Path,
+    own: &[PathBuf],
     skel: &Path,
     allow_file: bool,
     empty: &str,
     progress: &mut dyn FnMut(&str),
 ) -> Option<Entry> {
     let rel = rel.trim_start_matches("./").to_string();
-    match newest_backup_holding(backups_root, &rel) {
+    match own.iter().find(|d| d.join("home").join(&rel).exists()) {
         Some(root) => {
+            progress(&format!(
+                "{rel} comes from {}, the backup kept for this shell",
+                root.file_name().unwrap_or_default().to_string_lossy()
+            ));
             let src = root.join("home").join(&rel);
-            progress(&format!("{rel} comes from the newest backup that holds it"));
             Some(Entry {
                 rel,
                 src,
-                origin: Origin::Backup(root),
+                origin: Origin::Backup(root.clone()),
             })
         }
         None if skel.join(&rel).is_dir() || (allow_file && skel.join(&rel).is_file()) => {
             progress(&format!(
-                "{rel} comes from the skel, not a backup; no backup of yours holds it"
+                "{rel} comes from the skel, not a backup; no backup kept for this \
+                 shell holds it"
             ));
+            let src = skel.join(&rel);
             Some(Entry {
-                rel: rel.clone(),
-                src: skel.join(&rel),
+                rel,
+                src,
                 origin: Origin::Skel,
             })
         }
@@ -648,34 +715,78 @@ fn pull(
     }
 }
 
-/// The newest backup that actually holds `rel`, if any.
+/// Every backup that was taken while `shell_id` was the shell on this machine,
+/// newest first.
 ///
-/// Backup directories are named after the day they were taken, so sorting by
-/// name is sorting by age.
-fn newest_backup_holding(backups_root: &Path, rel: &str) -> Option<PathBuf> {
-    backup_holding(backups_root, rel)
-}
-
-/// The newest backup holding `rel`, whether `rel` is a directory or a file.
+/// Backup directories are named `<yyyymmdd>-<compositor>-<shell being left
+/// behind>`, and a backup only ever describes the desktop as it was with that
+/// shell in charge — a switch saves the shell it is leaving, and the shared paths
+/// inside it are that shell's version of them. Filtering by name is therefore how
+/// a path belonging to one shell gets the copy of *that* shell rather than the
+/// copy of whichever shell happened to leave most recently: the newest backup
+/// overall for `gtk.css` after a switch away from DMS is DMS's `@import`, which
+/// is the one import Noctalia does not want.
 ///
-/// Hidden directories are skipped: a copy still being built, or a previous one
-/// left aside by an interrupted replace, is not a backup anything should be
-/// sourcing files from. `exists` rather than `is_dir` because a shell's own
-/// declaration may name a single file, and because an aside can belong to one.
-fn backup_holding(backups_root: &Path, rel: &str) -> Option<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::fs::read_dir(backups_root)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
+/// `compositor` is part of the name for the same reason as `shell_id`: two
+/// compositors would each have their own copy of the same shell's desktop.
+///
+/// The order is by name descending, and the name starts with the day it was
+/// taken, so the newest is first. Two backups cannot share a name — a second one
+/// replaces the first — so there is nothing else to break the tie.
+///
+/// A backup taken with nothing running is named `…-<comp>-none` and is excluded
+/// by construction: it holds the previous shell's era only by accident, and it
+/// has no era of its own to give back.
+fn backups_for(backups_root: &Path, compositor_id: &str, shell_id: &str) -> Vec<PathBuf> {
+    let suffix = format!("-{compositor_id}-{shell_id}");
+    let mut dirs: Vec<PathBuf> = list_backups(backups_root)
+        .into_iter()
         .filter(|p| {
-            !p.file_name()
-                .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(&suffix))
         })
         .collect();
     dirs.sort();
     dirs.reverse();
-    dirs.into_iter().find(|d| d.join("home").join(rel).exists())
+    dirs
+}
+
+/// Every backup holding `rel`, newest first, whichever shell it belongs to.
+///
+/// Only [`discard_asides`] uses this: a copy a switch renamed aside has to be
+/// reproduced byte for byte before it may be dropped, and *some* backup doing so
+/// is the whole test — which backup it is says nothing about the copy, and
+/// insisting on the newest one was leaving `.pre-*` files behind on disk that the
+/// switch had already verified against an older directory.
+fn backups_holding(backups_root: &Path, rel: &str) -> Vec<PathBuf> {
+    let mut dirs = list_backups(backups_root);
+    dirs.sort();
+    dirs.reverse();
+    dirs.into_iter()
+        .filter(|d| d.join("home").join(rel).exists())
+        .collect()
+}
+
+/// The backup directories under `backups_root`, skipping hidden ones.
+///
+/// Hidden because a copy still being built, or a previous one left aside by an
+/// interrupted replace, is not a backup anything should be sourcing files from.
+fn list_backups(backups_root: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(backups_root)
+        .ok()
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .filter(|p| {
+                    !p.file_name()
+                        .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Copy every entry into a staging directory and count what landed.
@@ -841,7 +952,6 @@ fn stop_companions(shell: &Shell, progress: &mut dyn FnMut(&str)) {
             ),
             Err(err) => format!("cannot run systemctl to stop {name}: {err}"),
         };
-        crate::logging::warn(&line);
         progress(&line);
     }
 }
@@ -1028,9 +1138,16 @@ fn restore(asides: &[Aside], home: &Path) -> bool {
 /// generation was being copied into the next backup too.
 ///
 /// "The backup already holds this" is checked, never assumed: the aside is only
-/// dropped when some backup contains that exact path with the same number of
-/// files and the same number of bytes. An aside no backup holds is kept, because
-/// after the swap it may be the only copy left of what was there.
+/// dropped when **some** backup contains that exact path with the same number of
+/// files and the same number of bytes, and which backup that is does not matter —
+/// the question is whether the bytes are safe somewhere, not where. Checking only
+/// the newest one was the bug this replaced: after a switch the newest directory
+/// belongs to the shell just left, and an aside taken from the shell before it
+/// matched an older one instead, so six verified copies were left on disk as
+/// `.pre-*` clutter that nothing would ever read again.
+///
+/// An aside no backup holds is kept, because after the swap it may be the only
+/// copy left of what was there.
 ///
 /// Returns how many were removed and how many were kept.
 fn discard_asides(asides: &[Aside], backups_root: &Path) -> (usize, usize) {
@@ -1044,9 +1161,9 @@ fn discard_asides(asides: &[Aside], backups_root: &Path) -> (usize, usize) {
             continue;
         }
 
-        let identical = backup_holding(backups_root, &aside.rel)
-            .map(|root| measure(from) == measure(&root.join("home").join(&aside.rel)))
-            .unwrap_or(false);
+        let identical = backups_holding(backups_root, &aside.rel)
+            .iter()
+            .any(|root| measure(from) == measure(&root.join("home").join(&aside.rel)));
         if !identical {
             crate::logging::info(&format!(
                 "kept {}, which no backup reproduces byte for byte",
@@ -1075,6 +1192,58 @@ fn discard_asides(asides: &[Aside], backups_root: &Path) -> (usize, usize) {
     (dropped, held)
 }
 
+/// Take the backup again, now that the outgoing shell has stopped.
+///
+/// The copy is written before anything is installed, which is the order that
+/// makes the install reversible. It also means the shell being left was alive
+/// while it was taken, and it goes on running through the whole install: Noctalia
+/// wrote two clipboard entries and a notification history between its backup and
+/// its stop, and [`clean`] then found a backup that no longer described the file
+/// on disk and quite correctly kept the file rather than delete a version it had
+/// no copy of. The machine was left with a state directory the switch had just
+/// said it removed.
+///
+/// Stopping the shell closes that window. Nothing can write to its own state
+/// after it exits, so taking the same sources into the same directory once more
+/// records the last thing it wrote, and the byte-for-byte test [`clean`] runs
+/// then passes for the right reason: the backup describes the file because the
+/// file cannot have changed since.
+///
+/// A failure here is reported rather than fatal. The copy taken before the
+/// install is still on disk and still verified, and every path whose live copy
+/// has moved on is kept by `clean` — the behaviour before this ran, with none of
+/// the worse cases.
+fn refresh_backup(
+    outgoing: &'static Shell,
+    home: &Path,
+    backups_root: &Path,
+    backup_root: &Path,
+    compositor: &dyn Compositor,
+    progress: &mut dyn FnMut(&str),
+) {
+    let Some(name) = backup_root.file_name().and_then(|n| n.to_str()) else {
+        return;
+    };
+    let sources = crate::switch::backup_sources(home, compositor, Some(outgoing));
+    match crate::backup::Backup::create(backups_root, name, &sources, home) {
+        Ok(fresh) => {
+            let line = format!(
+                "took the backup again now that {} has stopped: {} files, holding what it last wrote",
+                outgoing.display_name,
+                fresh.file_count(),
+            );
+            progress(&line);
+        }
+        Err(err) => {
+            let line = format!(
+                "could not take the backup again after {} stopped, keeping the one taken before: {err:#}",
+                outgoing.display_name,
+            );
+            progress(&line);
+        }
+    }
+}
+
 /// Take the outgoing shell's own files off the machine.
 ///
 /// Runs only at the tail of a switch: the backup is written, read back and
@@ -1085,9 +1254,12 @@ fn discard_asides(asides: &[Aside], backups_root: &Path) -> (usize, usize) {
 /// backup that no longer describes what is on disk is not a way back, it is a
 /// reason to leave the file alone.
 ///
-/// The paths are the shell's `config_dir`, its `state_dir`, and its
+/// The paths are the shell's `config_dir`, its `state_dir`, its
 /// `generated_paths` — the themes it renders into shared directories and would
-/// render again on its next start. See [`crate::shell::Identity::generated_paths`].
+/// render again on its next start — and its `companion_paths`, where the
+/// companion programs kept their data while this shell was in charge. See
+/// [`crate::shell::Identity::generated_paths`] and
+/// [`crate::shell::Identity::companion_paths`].
 ///
 /// Then its `discard_paths`, which are outside that rule on purpose: they are
 /// the files and caches the shell wrote that hold no data, so there is nothing
@@ -1095,26 +1267,40 @@ fn discard_asides(asides: &[Aside], backups_root: &Path) -> (usize, usize) {
 /// deleted on their own terms, with only the ownership guard left. See
 /// [`crate::shell::Identity::discard_paths`].
 ///
-/// A mismatch is expected rather than exceptional. The shell was still running
-/// when the backup was taken and was stopped a moment later, so it can easily
-/// have written something in between. The file is then kept and said out loud,
-/// which is the honest outcome: cleaner than it was, and not a delete on a
-/// backup that has gone stale.
+/// A mismatch is now the exception it reads like. [`refresh_backup`] has taken
+/// the copy again since the shell stopped, so a file that has moved on since is
+/// one the shell somehow wrote after it exited, or a backup that could not be
+/// re-taken. The file is then kept and said out loud, which is the honest
+/// outcome: cleaner than it was, and not a delete on a backup that has gone
+/// stale.
 fn clean(
     outgoing: &Shell,
     target: &Shell,
     home: &Path,
+    backups_root: &Path,
     backup_root: &Path,
     progress: &mut dyn FnMut(&str),
 ) -> (usize, usize) {
     let mut removed = 0;
     let mut kept = 0;
 
+    // The backups are the reason any of this can be undone, which makes them the
+    // one thing on disk this function must never remove: neither a path inside
+    // them nor a path that contains them. Nothing in the registry is anywhere
+    // near `~/.local/share/backups`, but a path declared one directory too high
+    // would take the recovery copies away with the config — and the byte-for-byte
+    // check below would not stop it, because the backup does contain itself.
+    // `no_declared_path_can_reach_the_backups` is the registry-side half of this;
+    // this is the half that refuses even so.
+    let reaches_backups =
+        |live: &Path| live.starts_with(backups_root) || backups_root.starts_with(live);
+
     // The guard applies to both lists below and is asked for by the same
     // reasoning in both: the swap wrote every path in `target.skel_extra_paths`
     // moments ago, so removing a path the incoming shell owns would take away
     // the shell that is starting. A future registry that gave two shells the
-    // same `config_dir` is caught here too.
+    // same `config_dir` is caught here too — and two shells declaring the same
+    // companion data, which would be the same mistake one level out.
     //
     // Asked after the existence check rather than before it, because `kept`
     // counts what was kept: a path nobody has written anything to is not a file
@@ -1125,15 +1311,28 @@ fn clean(
             || target.state_dir == Some(rel)
             || target.skel_extra_paths.contains(&rel)
             || target.generated_paths.contains(&rel)
+            || target.companion_paths.contains(&rel)
     };
 
     for rel in [outgoing.config_dir, outgoing.state_dir]
         .into_iter()
         .flatten()
         .chain(outgoing.generated_paths.iter().copied())
+        .chain(outgoing.companion_paths.iter().copied())
     {
         let live = home.join(rel);
         if !live.exists() {
+            continue;
+        }
+
+        if reaches_backups(&live) {
+            crate::logging::error(&format!(
+                "refusing to remove {rel}: it is inside, or above, the backups"
+            ));
+            progress(&format!(
+                "refusing to remove {rel}; it reaches the backups, which a switch never cleans"
+            ));
+            kept += 1;
             continue;
         }
 
@@ -1151,7 +1350,6 @@ fn clean(
             let line = format!(
                 "kept {rel}: the backup taken for this switch does not hold it byte for byte"
             );
-            crate::logging::info(&line);
             progress(&line);
             kept += 1;
             continue;
@@ -1173,7 +1371,6 @@ fn clean(
             }
             Err(err) => {
                 let line = format!("cannot remove {rel} after a successful switch: {err}");
-                crate::logging::error(&line);
                 progress(&line);
                 kept += 1;
             }
@@ -1189,6 +1386,17 @@ fn clean(
     for rel in outgoing.discard_paths {
         let live = home.join(rel);
         if !live.exists() {
+            continue;
+        }
+
+        if reaches_backups(&live) {
+            crate::logging::error(&format!(
+                "refusing to discard {rel}: it is inside, or above, the backups"
+            ));
+            progress(&format!(
+                "refusing to discard {rel}; it reaches the backups, which a switch never cleans"
+            ));
+            kept += 1;
             continue;
         }
 
@@ -1216,7 +1424,6 @@ fn clean(
             }
             Err(err) => {
                 let line = format!("cannot discard {rel} after a successful switch: {err}");
-                crate::logging::error(&line);
                 progress(&line);
                 kept += 1;
             }

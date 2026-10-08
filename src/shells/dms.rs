@@ -44,6 +44,13 @@
 //!   DMS wait for it, and DMS looks merely incomplete without it, so it is declared
 //!   rather than left to the skel autostart, which only runs on the next login. The
 //!   live switch starts it in the current session too.
+//! - **companion data**: `dankcalendar-git` and `dgop` own `companion_paths`, and
+//!   DMS is the only shell here with any. Nothing installs those paths — the
+//!   programs write them the first time they run — so the switch neither replaces
+//!   them on the way in nor leaves them behind on the way out: they are backed up
+//!   with DMS, removed only when that backup reproduces them byte for byte, and
+//!   read back the next time DMS comes home. See
+//!   [`crate::shell::Identity::companion_paths`].
 //!
 //! What differs per compositor is the [`Port`]. DMS's own config directory is the
 //! same on both; the Hyprland page additionally carries the launcher entry that
@@ -125,6 +132,23 @@ pub const IDENTITY: Identity = Identity {
         args: &["rum", "remove", "-y"],
     }),
     companion_systemd_user_units: &["dcal"],
+    // Where the companions themselves keep their data. `dankcalendar-git` owns
+    // the calendar database and its keyring, and `dgop` owns the palette it
+    // writes; nothing installs any of it, so the skel carries none of it and the
+    // backup is the only thing that can hand it back after DMS has been away.
+    //
+    // Declared rather than left to `discard_paths`: a calendar database is data.
+    // It is backed up with DMS, removed on the way out only when that backup
+    // reproduces it byte for byte, and read back by `plan` the next time DMS is
+    // the shell. `.config/dankcal` is empty on this machine today — it is still
+    // declared, because the day dankcalendar writes a setting there the difference
+    // between "backed up" and "thrown away without asking" is somebody's data.
+    companion_paths: &[
+        ".config/dankcal",
+        ".config/dgop",
+        ".local/share/dankcal",
+        ".local/state/dankcal",
+    ],
     // Matugen renders these from the wallpaper, not the switch — DMS's
     // `matugen/configs/gtk3-*.toml` and `qt5ct.toml`/`qt6ct.toml` name them as
     // their output paths, and every one lands in a directory SHARED_PATHS
