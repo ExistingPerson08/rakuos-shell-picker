@@ -1326,9 +1326,6 @@ fn clean(
         }
 
         if reaches_backups(&live) {
-            crate::logging::error(&format!(
-                "refusing to remove {rel}: it is inside, or above, the backups"
-            ));
             progress(&format!(
                 "refusing to remove {rel}; it reaches the backups, which a switch never cleans"
             ));
@@ -1337,7 +1334,7 @@ fn clean(
         }
 
         if target_owns(rel) {
-            crate::logging::warn(&format!(
+            progress(&format!(
                 "not cleaning {rel}: {} owns the same path",
                 target.display_name
             ));
@@ -1362,7 +1359,6 @@ fn clean(
         };
         match result {
             Ok(()) => {
-                crate::logging::info(&format!("removed {rel} after a successful switch"));
                 progress(&format!(
                     "removed {rel}; it is still in {}",
                     backup_root.display()
@@ -1390,9 +1386,6 @@ fn clean(
         }
 
         if reaches_backups(&live) {
-            crate::logging::error(&format!(
-                "refusing to discard {rel}: it is inside, or above, the backups"
-            ));
             progress(&format!(
                 "refusing to discard {rel}; it reaches the backups, which a switch never cleans"
             ));
@@ -1401,7 +1394,7 @@ fn clean(
         }
 
         if target_owns(rel) {
-            crate::logging::warn(&format!(
+            progress(&format!(
                 "not discarding {rel}: {} owns the same path",
                 target.display_name
             ));
@@ -1416,7 +1409,6 @@ fn clean(
         };
         match result {
             Ok(()) => {
-                crate::logging::info(&format!("discarded {rel}: it holds no data"));
                 progress(&format!(
                     "discarded {rel}; it holds no data, so no copy was taken"
                 ));
