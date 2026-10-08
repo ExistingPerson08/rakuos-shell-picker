@@ -11,33 +11,44 @@ use rakuos_shell_picker::{apply, compositor, session};
 /// the plan without committing to it is the difference between trying it and
 /// thinking about it.
 fn dry_run(args: &[String]) -> ! {
+    // The same reason as `switch` below: refusals in here are written with
+    // `fail`, and a sink nobody opened drops them. A dry run that ends in a
+    // refusal is exactly the one worth finding in the log afterwards.
+    let _ = rakuos_shell_picker::logging::init_command();
+
     let want_comp = args.first().map(String::as_str).unwrap_or("hyprland");
     let want_shell = args.get(1).map(String::as_str).unwrap_or("dms");
 
     let Some(comp) = compositor::all().into_iter().find(|c| c.id() == want_comp) else {
-        fail(&format!(
-            "no compositor called {want_comp}; try one of: {}",
-            compositor::all()
-                .iter()
-                .map(|c| c.id())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        fail(
+            "dry run",
+            &format!(
+                "no compositor called {want_comp}; try one of: {}",
+                compositor::all()
+                    .iter()
+                    .map(|c| c.id())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        );
     };
     let Some(shell) = comp.shells().iter().find(|s| s.id == want_shell) else {
-        fail(&format!(
-            "{} has no shell called {want_shell}; try one of: {}",
-            comp.label(),
-            comp.shells()
-                .iter()
-                .map(|s| s.id)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        fail(
+            "dry run",
+            &format!(
+                "{} has no shell called {want_shell}; try one of: {}",
+                comp.label(),
+                comp.shells()
+                    .iter()
+                    .map(|s| s.id)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        );
     };
 
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        fail("HOME is not set");
+        fail("dry run", "HOME is not set");
     };
 
     let ctx = apply::Context {
@@ -48,12 +59,20 @@ fn dry_run(args: &[String]) -> ! {
 
     match apply::dry_run(shell, comp, &ctx, &mut |line| println!("{line}")) {
         Ok(()) => std::process::exit(0),
-        Err(detail) => fail(&detail),
+        Err(detail) => fail("dry run", &detail),
     }
 }
 
-fn fail(detail: &str) -> ! {
-    eprintln!("dry run refused: {detail}");
+/// Refuse, on the terminal and in the log.
+///
+/// `scope` says which command is refusing. It used to be hardcoded to
+/// "dry run" even when the caller was `--switch`, so a bad `--switch`
+/// argument answered `dry run refused: no compositor called ...` — a message
+/// about a command the user had not run.
+fn fail(scope: &str, detail: &str) -> ! {
+    let line = format!("{scope} refused: {detail}");
+    eprintln!("{line}");
+    rakuos_shell_picker::logging::error(&line);
     std::process::exit(1);
 }
 
@@ -65,6 +84,15 @@ fn fail(detail: &str) -> ! {
 /// of ending the session, which is the only way to watch the new shell come up and
 /// still be here to see it.
 fn switch(args: &[String]) -> ! {
+    // Before anything else, because the steps below call `logging::info` and a
+    // sink that was never opened makes every one of those calls a no-op. The
+    // window opens the log in `app::run`; a scripted switch never gets there, so
+    // without this the record the comment further down promises would not exist.
+    // `init_command` rather than `init`: a terminal switch appends to the log
+    // instead of emptying it, so running one does not erase the window's own
+    // session, which may well be mid-switch.
+    let _ = rakuos_shell_picker::logging::init_command();
+
     let flags: Vec<&String> = args.iter().filter(|a| a.starts_with("--")).collect();
     let positional: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
     let want_comp = positional.first().map(|s| s.as_str()).unwrap_or("hyprland");
@@ -72,16 +100,16 @@ fn switch(args: &[String]) -> ! {
     let log_out = !flags.iter().any(|f| f.as_str() == "--no-logout");
 
     let Some(comp) = compositor::all().into_iter().find(|c| c.id() == want_comp) else {
-        fail(&format!("no compositor called {want_comp}"));
+        fail("switch", &format!("no compositor called {want_comp}"));
     };
     let Some(shell) = comp.shells().iter().find(|s| s.id == want_shell) else {
-        fail(&format!(
-            "{} has no shell called {want_shell}",
-            comp.label()
-        ));
+        fail(
+            "switch",
+            &format!("{} has no shell called {want_shell}", comp.label()),
+        );
     };
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        fail("HOME is not set");
+        fail("switch", "HOME is not set");
     };
 
     // Looked for across every compositor, the same way the window does it: a
@@ -95,11 +123,13 @@ fn switch(args: &[String]) -> ! {
         backups_root: session::State::backups_dir(),
     };
 
-    println!(
+    let opening = format!(
         "switching {} to {}; log out at the end: {log_out}",
         comp.label(),
         shell.display_name
     );
+    println!("{opening}");
+    rakuos_shell_picker::logging::info(&opening);
     match rakuos_shell_picker::switch::everything(
         comp,
         Some(comp.id()),
@@ -117,10 +147,14 @@ fn switch(args: &[String]) -> ! {
     ) {
         rakuos_shell_picker::switch::Outcome::Done(line) => {
             println!("done: {line}");
+            rakuos_shell_picker::logging::info(&line);
             std::process::exit(0);
         }
         rakuos_shell_picker::switch::Outcome::Failed(line) => {
             eprintln!("failed: {line}");
+            // A refusal happens before a single step is reported, so without this
+            // a switch that never started would leave only the session marker.
+            rakuos_shell_picker::logging::error(&line);
             std::process::exit(1);
         }
     }

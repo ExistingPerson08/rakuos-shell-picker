@@ -4,7 +4,9 @@
 //! steps of an operation and nothing else, so anything that is not part of a
 //! running operation belongs here.
 //!
-//! One session, one log: the file is truncated on start, not appended to.
+//! One file, two sessions: the window starts it empty, and a run from the
+//! terminal appends to whatever the window has already recorded. See
+//! [`init`] and [`init_command`].
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -81,20 +83,30 @@ pub fn default_dir() -> Option<PathBuf> {
     Some(base.join(format!("{APP_DIR}-{uid}")))
 }
 
-fn open(dir: &Path) -> Option<Sink> {
+/// The same file, opened for a second session that must not throw away the
+/// first one's.
+///
+/// The window owns the session log and starts it empty, which is right when it
+/// is the only thing writing to it. A switch run from a terminal is a different
+/// session in the same file: truncating it there would delete everything the
+/// window had recorded up to that moment, including the run that is currently
+/// in progress. `O_APPEND` makes both handles land at the end rather than
+/// overwrite each other's offsets.
+fn open_in(dir: &Path, truncate: bool) -> Option<Sink> {
     fs::DirBuilder::new()
         .recursive(true)
         .mode(DIR_MODE)
         .create(dir)
         .ok()?;
     let path = dir.join("picker.log");
-    let file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(FILE_MODE)
-        .open(&path)
-        .ok()?;
+    let mut options = OpenOptions::new();
+    options.create(true).write(true).mode(FILE_MODE);
+    if truncate {
+        options.truncate(true);
+    } else {
+        options.append(true);
+    }
+    let file = options.open(&path).ok()?;
     Some(Sink { path, file })
 }
 
@@ -106,9 +118,32 @@ pub fn init() -> Option<PathBuf> {
 /// Same, but at an explicit directory. Lets tests stay out of the real runtime
 /// directory.
 pub fn init_at(dir: &Path) -> Option<PathBuf> {
-    let opened = open(dir)?;
+    let opened = open_in(dir, true)?;
     let path = opened.path.clone();
     *sink().lock().ok()? = Some(opened);
+    Some(path)
+}
+
+/// Opens the log for a switch run from the terminal, keeping what is already
+/// in the file.
+///
+/// Called before `--switch` does anything, because every step of a switch is
+/// reported through [`info`] and a sink nobody opened makes those calls
+/// no-ops. The window opens the same file in `app::run`, and a scripted switch
+/// never gets that far — without this the record the command's own comment
+/// promises would not exist.
+pub fn init_command() -> Option<PathBuf> {
+    init_command_at(&default_dir()?)
+}
+
+/// Same, at an explicit directory. Lets tests stay out of the real runtime
+/// directory.
+pub fn init_command_at(dir: &Path) -> Option<PathBuf> {
+    let opened = open_in(dir, false)?;
+    let path = opened.path.clone();
+    *sink().lock().ok()? = Some(opened);
+    // A boundary, so two sessions sharing one file can still be told apart.
+    info("--- command line session ---");
     Some(path)
 }
 

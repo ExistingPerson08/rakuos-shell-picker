@@ -27,7 +27,7 @@ mengerjakan setiap langkah disebutkan supaya bisa diperiksa langsung.
 | 2 | **Backup** | `switch::prepare` step 3 | Berhenti. Nol perubahan. |
 | 3 | **Install** (kalau shell tujuan punya rencana instalasi) | `switch::install` | Backup tetap utuh, tidak ada yang di-apply. |
 | 4 | **Apply**: plan → stage → stop lama → swap → start baru → verify | `apply::apply_with` | Rollback penuh (lihat bagian [Rollback](#rollback)). |
-| 5 | **Clean** shell yang ditinggalkan, lalu **uninstall** paketnya | `apply::clean`, `switch::uninstall` | Tidak fatal — shell baru sudah hidup. |
+| 5 | **Clean** shell yang ditinggalkan → **reload** konfigurasi kompositor → **tunggu 5 detik** → **uninstall** paketnya | `apply::clean`, `Compositor::reload`, `switch::uninstall` | Tidak fatal — shell baru sudah hidup. |
 | 6 | **Logout** | `apply::logout` | Switch tetap berhasil; diminta logout manual. |
 
 Kenapa instalasi ada **setelah** backup dan sebelum apply: backup bersifat
@@ -258,9 +258,14 @@ bukan milik image.
 
 ## 6. Logout
 
-1. `systemctl --user logout`
-2. Kalau gagal → `loginctl terminate-session $XDG_SESSION_ID`
-3. Kalau keduanya gagal → switch tetap berhasil, diminta logout manual
+1. `loginctl terminate-session $XDG_SESSION_ID`
+2. Kalau gagal → switch tetap berhasil, diminta logout manual
+
+`systemctl --user logout` pernah dicoba lebih dulu sebagai jalur yang lebih
+"rapi", tetapi systemd 261 tidak punya verb itu sama sekali — jawabannya
+`Unknown command verb 'logout', did you mean 'reboot'?`. Percobaan itu tidak
+pernah sekali pun berhasil, jadi yang diambil hanyalah satu baris log yang tidak
+bisa ditindaklanjuti siapa pun. `loginctl` sekarang satu-satunya jalur.
 
 Logout adalah bagian dari pekerjaan, bukan saran: sesi yang masih berjalan tetap
 memakai konfigurasi Hyprland lama, dan shell barunya baru benar-benar hidup di
@@ -371,6 +376,25 @@ Dua kategori cache dianggap berbeda:
 
 ## 5. Uninstall
 
+Dua langkah pendahulu, keduanya sebelum satu kata pun `rum` dijalankan:
+
+1. **`hyprctl reload`.** Kompositor masih membaca konfigurasi yang baru saja
+   diganti, dan tidak ada yang me-reload-nya — sesi baru baru terjadi di
+   langkah 6, setelah tahap privileged ini. Me-reload dulu membuat aturan shell
+   baru yang ikonik di `.config/hypr` jadi yang berlaku selama sisa switch.
+   Kegagalannya dilaporkan, tidak membatalkan apa pun.
+2. **Jeda 5 detik (`AGENT_GRACE`).** Shell yang menjawab polkit sekarang adalah
+   shell **baru**, dan ia mendaftarkan auth agent-nya **setelah** hidup: DMS
+   menyalakan `PolkitService`, Noctalia memakai `polkit_agent = true`. Kalau
+   `pkexec` dijalankan satu detik setelah start, tidak ada yang menjawab,
+   polkit jatuh ke prompt teks milik pkexec, dan prompt itu butuh
+   *controlling terminal* yang tidak dimiliki sebuah window — hasilnya
+   `Error creating textual authentication agent` lalu `stage 1 was not
+   authorized`. (Terjadi di mesin nyata: shell lama sudah di-stop, shell baru
+   baru 1 detik hidup, prompt tidak pernah muncul.)
+
+Baru sesudah itu:
+
 Satu tahap, satu transaksi: `pkexec rum remove -y` atas
 
 ```
@@ -411,9 +435,10 @@ yang memang sengaja ditinggalkan.
 
 ## 6. Logout
 
-Sama persis dengan arah pertama: `systemctl --user logout`, fallback
-`loginctl terminate-session`, dan kalau keduanya gagal tetap dilaporkan sukses
-dengan catatan bahwa logout manual diperlukan.
+Sama persis dengan arah pertama: `loginctl terminate-session`, dan kalau itu
+gagal switch tetap dilaporkan sukses dengan catatan bahwa logout manual
+diperlukan. `systemctl --user logout` tidak dipakai — verb itu tidak ada di
+systemd 261, jadi mencobanya cuma menghasilkan baris gagal di log.
 
 ---
 

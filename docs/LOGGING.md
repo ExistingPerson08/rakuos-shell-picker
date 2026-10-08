@@ -52,7 +52,20 @@ Isi:
 2026-10-02T18:31:09Z INFO  switch end   op=7f3a1c2e result=ok
 ```
 
-- **Diotong (truncate) saat app start.** Satu sesi = satu log.
+- **Diotong (truncate) saat window start.** Window memulai file kosong.
+- **Jalur `--switch` dan `--dry-run` menambah (append), bukan memotong.** Keduanya
+  membuka file yang sama dengan mode append dan menulis penanda
+  `--- command line session ---`. Window bisa saja sedang berjalan — bahkan
+  sedang switch — dan mengosongkan file pada saat itu akan membuang seluruh
+  catatannya, termasuk operasi yang sedang berjalan. Dua sesi dalam satu file
+  dipisah oleh penanda di atas.
+- **Satu langkah = satu baris.** `progress` sudah menulis ke log lewat panel UI
+  dan lewat closure CLI; memanggil `logging::info` lagi untuk langkah yang sama
+  akan mencetaknya dua kali. Kalau sebuah baris muncul dobel di log, penyebabnya
+  hampir selalu dua jalur itu.
+- **Penolakan ikut tercatat.** `refused:` dari `--dry-run`/`--switch` ditulis ke
+  log sebagai `ERROR`, jadi percobaan yang berhenti sebelum langkah pertama pun
+  meninggalkan jejak.
 - Format: RFC 3339 UTC + level + pesan.
 - Setiap baris operasi diberi `op=<id>` supaya bisa dikorelasikan dengan log
   gagal dan panel UI.

@@ -68,6 +68,35 @@ fn the_log_is_truncated_on_the_next_run() {
 }
 
 #[test]
+fn a_command_line_session_does_not_discard_the_windows() {
+    // The window owns the log and starts it empty. A switch run from a terminal
+    // is a second session in the same file, and emptying it there would delete
+    // whatever the window had recorded — up to and including the switch that is
+    // still running when the terminal one is started.
+    let _guard = serial();
+    let tmp = TempDir::new("cli");
+    let dir = tmp.0.join("log");
+
+    init_at(&dir);
+    info("what the window recorded before the terminal was used");
+    assert!(contents(&dir).contains("before the terminal was used"));
+
+    init_command_at(&dir);
+    info("what the terminal did next");
+
+    let text = contents(&dir);
+    assert!(
+        text.contains("before the terminal was used"),
+        "the window's session was discarded: {text}"
+    );
+    assert!(text.contains("what the terminal did next"), "{text}");
+    assert!(
+        text.contains("--- command line session ---"),
+        "the two sessions have no boundary: {text}"
+    );
+}
+
+#[test]
 fn the_log_file_is_not_readable_by_other_users() {
     let _guard = serial();
     use std::os::unix::fs::PermissionsExt;

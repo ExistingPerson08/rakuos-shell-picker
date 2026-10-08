@@ -45,6 +45,23 @@ impl Compositor for Hyprland {
             None => true,
         }
     }
+
+    fn reload(&self) -> Result<(), String> {
+        let out = std::process::Command::new("hyprctl")
+            .arg("reload")
+            .output()
+            .map_err(|e| format!("cannot run hyprctl reload: {e}"))?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let detail = String::from_utf8_lossy(&out.stderr);
+        let detail = detail.trim();
+        Err(if detail.is_empty() {
+            format!("hyprctl reload exited with {}", out.status)
+        } else {
+            format!("hyprctl reload: {detail}")
+        })
+    }
 }
 
 impl Hyprland {

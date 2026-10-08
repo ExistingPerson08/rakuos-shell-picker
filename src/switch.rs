@@ -326,7 +326,8 @@ pub fn install(plan: InstallPlan, progress: &mut dyn FnMut(&str)) -> Install {
         }
 
         let line = plan.stage_command_line(&missing);
-        crate::logging::info(&format!("stage {number} of {}: {line}", plan.stages.len()));
+        // One line, not two: `progress` already reaches the application log on
+        // both paths, and logging it here as well printed the stage twice.
         progress(&format!("stage {number} of {}: {line}", plan.stages.len()));
         progress(&format!(
             "authorizing stage {number}; a password prompt should appear"
@@ -464,7 +465,6 @@ pub fn uninstall(
              will not remove them",
             kept.join(", ")
         );
-        crate::logging::info(&line);
         progress(&line);
     }
 
@@ -504,7 +504,6 @@ pub fn uninstall(
         }
 
         let line = plan.stage_command_line(&present);
-        crate::logging::info(&format!("stage {number} of {}: {line}", plan.stages.len()));
         progress(&format!("stage {number} of {}: {line}", plan.stages.len()));
         progress(&format!(
             "authorizing stage {number}; a password prompt should appear"

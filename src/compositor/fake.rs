@@ -44,6 +44,12 @@ impl Compositor for Fake {
     fn is_running_with(&self, env: &dyn EnvSource) -> bool {
         env.var(self.marker_env()).is_some()
     }
+
+    // Nothing to reload: the point of the fake is to be a second registrant,
+    // not a second compositor with a configuration of its own.
+    fn reload(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub static FAKE: Fake = Fake;

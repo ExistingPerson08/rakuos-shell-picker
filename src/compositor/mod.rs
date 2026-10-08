@@ -79,6 +79,19 @@ pub trait Compositor: Sync {
     /// Whether this compositor is the one currently running.
     fn is_running_with(&self, env: &dyn EnvSource) -> bool;
 
+    /// Ask the compositor to pick up whatever is on disk now.
+    ///
+    /// A switch replaces [`config_dir`](Self::config_dir) while the compositor
+    /// is still running the copy it read at login, and nothing else reloads it
+    /// — the session is restarted at the *end* of a switch, after the stages
+    /// that run as root. Re-reading the configuration first is what makes the
+    /// new shell's rules the ones in effect for the rest of the switch.
+    ///
+    /// Reported, never fatal: a compositor that cannot reload still has the
+    /// restart at the end, and losing that would turn a cosmetic step into a
+    /// reason to abandon a switch that has already succeeded.
+    fn reload(&self) -> Result<(), String>;
+
     fn is_running(&self) -> bool {
         self.is_running_with(&SystemEnv)
     }

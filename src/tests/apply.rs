@@ -723,10 +723,17 @@ fn state_that_no_backup_holds_is_left_to_start_empty() {
     .unwrap();
 
     assert!(!entries.iter().any(|e| e.rel == ".local/state/noctalia"));
-    assert!(
-        said.iter()
-            .any(|l| l.contains("starts with no state carried over")),
-        "the panel has to say the state was not brought back: {said:?}"
+    let line = said
+        .iter()
+        .find(|l| l.contains("starts with no state carried over"))
+        .unwrap_or_else(|| panic!("the panel has to say the state was not brought back: {said:?}"));
+    // `pull` writes the prefix itself; the hint is only what comes after it. The
+    // two were briefly written as if each owned the whole sentence, and the panel
+    // printed the first half twice before the second.
+    assert_eq!(
+        line.matches("no backup or skel holds").count(),
+        1,
+        "the prefix is said once: {line}"
     );
 }
 

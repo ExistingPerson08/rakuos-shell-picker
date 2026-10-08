@@ -91,6 +91,16 @@ const STOP_GRACE: Duration = Duration::from_secs(10);
 /// dms.service declares TimeoutStartSec=90s, so this is not generous by accident.
 const START_GRACE: Duration = Duration::from_secs(90);
 
+/// How long the new shell gets to answer polkit before a privileged stage runs.
+///
+/// The shell that was running is stopped before this, and the one replacing it
+/// registers its authentication agent only after it is up: DMS brings up a
+/// PolkitService and Noctalia sets `polkit_agent = true`, both a beat after
+/// start. Ask for a password while no agent exists and polkit falls back to
+/// pkexec's textual prompt, which needs a controlling terminal — a window does
+/// not have one, and the stage comes back as dismissed.
+const AGENT_GRACE: Duration = Duration::from_secs(5);
+
 /// The three roots a switch reads and writes inside.
 ///
 /// They travel together because they have to: staging has to sit on the same
@@ -405,6 +415,25 @@ pub fn apply_with(
         }
 
         if let Some(plan) = outgoing.uninstall_plan {
+            // Two things have to happen before a password can be asked for.
+            // The compositor is still running the configuration this switch
+            // replaced, so it is reloaded first and the new shell's rules are
+            // the ones in effect. Then the new shell gets time to register its
+            // polkit agent — without it, `pkexec` is answered by nobody and
+            // falls back to a textual prompt a window cannot show.
+            match compositor.reload() {
+                Ok(()) => progress(&format!("reloaded {}'s configuration", compositor.label())),
+                Err(detail) => progress(&format!(
+                    "could not reload {}'s configuration: {detail}",
+                    compositor.label()
+                )),
+            }
+            progress(&format!(
+                "waiting {} seconds for {} to be ready to answer polkit",
+                AGENT_GRACE.as_secs(),
+                target.display_name
+            ));
+            std::thread::sleep(AGENT_GRACE);
             progress(&format!("removing the {} packages", outgoing.display_name));
             match crate::switch::uninstall(plan, target.runtime_packages, progress) {
                 crate::switch::Removed::Finished { stages, .. } => progress(&format!(
@@ -512,10 +541,7 @@ fn plan(
             backups_root,
             skel,
             true,
-            &format!(
-                "no backup or skel holds {rel}; {} starts with no state carried over",
-                target.display_name
-            ),
+            &format!("{} starts with no state carried over", target.display_name),
             progress,
         ) {
             entries.push(entry);
@@ -1397,23 +1423,14 @@ fn resume(shell: Option<&'static Shell>, progress: &mut dyn FnMut(&str)) -> bool
 fn logout(progress: &mut dyn FnMut(&str)) -> Result<(), String> {
     progress("ending the session; log back in to start the new shell");
 
-    // `systemctl --user logout` is the tidy way, but it is a fairly recent verb,
-    // and a picker that leaves the user staring at the new shell on the old
-    // session has not finished its job. So the session is ended either way, and
-    // which route was used is said out loud.
-    let out = run("systemctl", &["--user", "logout"]);
-    match out {
-        Ok(o) if o.status.success() => {
-            progress("systemctl ended the session");
-            return Ok(());
-        }
-        Ok(o) => progress(&format!(
-            "systemctl --user logout did not work ({}), ending the session another way",
-            String::from_utf8_lossy(&o.stderr).trim()
-        )),
-        Err(e) => progress(&format!("cannot run systemctl --user logout: {e}")),
-    }
-
+    // `loginctl terminate-session` is the way, and it turns out to be the only
+    // one: systemd 261 has no `logout` verb, and `systemctl --user logout`
+    // answers "Unknown command verb 'logout', did you mean 'reboot'?". That
+    // attempt used to be made first on the theory that it was a newer verb some
+    // systems would have; on this one it has never once succeeded, so all it
+    // bought was a line in the log reporting a failure nobody could act on.
+    // A picker that leaves the user staring at the new shell on the old session
+    // has not finished its job, so this is where the session ends.
     let session = std::env::var("XDG_SESSION_ID").ok().or_else(|| {
         run("loginctl", &["show-session", "self", "-p", "Id", "--value"])
             .ok()
@@ -1440,7 +1457,7 @@ fn logout(progress: &mut dyn FnMut(&str)) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "the shell is switched but neither systemctl nor loginctl could end session \
+            "the shell is switched but loginctl could not end session \
              {session}; log out yourself when convenient. loginctl said: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         ))
