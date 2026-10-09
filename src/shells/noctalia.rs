@@ -28,6 +28,7 @@ pub const IDENTITY: Identity = Identity {
     package: Some("noctalia"),
     binary: "noctalia",
     start_argv: &["noctalia"],
+    process_match: &[],
     install_plan: None,
     // Never. It is part of the base image, so there is nothing to install and
     // nothing that may be removed: `rum remove` would refuse anyway, and a plan

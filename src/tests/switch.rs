@@ -72,10 +72,13 @@ fn switching_away_from_dms_backs_up_what_dms_would_lose() {
 }
 
 #[test]
-fn caelestia_needs_no_backup_of_its_own() {
-    // Its config directory is the whole of it: the skel installs nothing else
-    // on its behalf, so there is nothing else to save. Declaring a path that is
-    // not installed would be harmless but misleading, and this pins the reason.
+fn caelestia_brings_only_its_own_paths() {
+    // Its config and state are both the shell's own, so both are saved. The one
+    // path beyond them is the launcher entry — the same file DMS and Noctalia
+    // each declare — because a switch that left it visible would keep offering
+    // the shell it just left in the app menu. That is the only extra, and it is
+    // listed as both installed and kept for the two separate questions a switch
+    // asks of it.
     assert_eq!(
         relative_list(Some(&CAELESTIA)),
         [
@@ -84,11 +87,21 @@ fn caelestia_needs_no_backup_of_its_own() {
             ".config/qt5ct",
             ".config/qt6ct",
             ".config/hypr",
-            ".config/quickshell/caelestia",
+            ".config/caelestia",
+            ".local/state/caelestia",
+            ".local/share/applications/dev.noctalia.Noctalia.desktop",
         ]
     );
-    assert!(CAELESTIA.skel_extra_paths.is_empty());
-    assert!(CAELESTIA.backup_extra_paths.is_empty());
+    assert_eq!(
+        CAELESTIA.skel_extra_paths,
+        [".local/share/applications/dev.noctalia.Noctalia.desktop"],
+        "the launcher is the one path the skel installs beyond its own directories"
+    );
+    assert_eq!(
+        CAELESTIA.backup_extra_paths,
+        [".local/share/applications/dev.noctalia.Noctalia.desktop"],
+        "and nothing else would back it up, so it is declared kept as well"
+    );
 }
 
 #[test]
@@ -146,6 +159,6 @@ fn the_shell_being_left_behind_is_the_one_that_gets_backed_up() {
     assert!(!dms_only.contains(&".config/noctalia".to_string()));
 
     let caelestia_only = relative_list(Some(&CAELESTIA));
-    assert!(caelestia_only.contains(&".config/quickshell/caelestia".to_string()));
+    assert!(caelestia_only.contains(&".config/caelestia".to_string()));
     assert!(!caelestia_only.contains(&".config/DankMaterialShell".to_string()));
 }

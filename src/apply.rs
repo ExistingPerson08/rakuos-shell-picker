@@ -890,7 +890,7 @@ fn stop_unit(
     progress: &mut dyn FnMut(&str),
 ) -> Result<(), String> {
     let name = format!("{unit}.service");
-    let before = pids_of(shell.binary);
+    let before = pids_of(shell.binary, shell.process_match);
     if before.is_empty() {
         progress(&format!("{} is not running", shell.display_name));
     } else {
@@ -914,7 +914,7 @@ fn stop_unit(
         ));
     }
 
-    let left = pids_of(shell.binary);
+    let left = pids_of(shell.binary, shell.process_match);
     if !left.is_empty() {
         return Err(format!(
             "{} is still running (pid {}) after {name} reported stopped",
@@ -962,7 +962,7 @@ fn stop_companions(shell: &Shell, progress: &mut dyn FnMut(&str)) {
 /// kill is a fallback, not the plan, and the loop waits to see whether the first
 /// signal was enough rather than assuming either way.
 fn stop_signals(shell: &Shell, progress: &mut dyn FnMut(&str)) -> Result<(), String> {
-    let pids = pids_of(shell.binary);
+    let pids = pids_of(shell.binary, shell.process_match);
     if pids.is_empty() {
         progress(&format!("{} is not running", shell.display_name));
         return Ok(());
@@ -980,7 +980,7 @@ fn stop_signals(shell: &Shell, progress: &mut dyn FnMut(&str)) -> Result<(), Str
 
     let deadline = Instant::now() + STOP_GRACE;
     loop {
-        let left = pids_of(shell.binary);
+        let left = pids_of(shell.binary, shell.process_match);
         if left.is_empty() {
             progress(&format!("{} stopped", shell.display_name));
             return Ok(());
@@ -996,12 +996,12 @@ fn stop_signals(shell: &Shell, progress: &mut dyn FnMut(&str)) -> Result<(), Str
         shell.display_name,
         STOP_GRACE.as_secs()
     ));
-    let left = pids_of(shell.binary);
+    let left = pids_of(shell.binary, shell.process_match);
     signal(&left, "-KILL").map_err(|e| format!("cannot kill {}: {e}", shell.binary))?;
 
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
-        if pids_of(shell.binary).is_empty() {
+        if pids_of(shell.binary, shell.process_match).is_empty() {
             progress(&format!("{} killed", shell.display_name));
             return Ok(());
         }
@@ -1010,7 +1010,7 @@ fn stop_signals(shell: &Shell, progress: &mut dyn FnMut(&str)) -> Result<(), Str
     Err(format!(
         "{} is still running (pid {}) and could not be stopped",
         shell.display_name,
-        pids_of(shell.binary)
+        pids_of(shell.binary, shell.process_match)
             .iter()
             .map(|p| p.to_string())
             .collect::<Vec<_>>()
@@ -1545,7 +1545,7 @@ fn verify(
     }
 
     loop {
-        if !pids_of(shell.binary).is_empty() {
+        if !pids_of(shell.binary, shell.process_match).is_empty() {
             progress(&format!("{} is running", shell.binary));
             break;
         }
@@ -1583,12 +1583,16 @@ fn verify(
                 continue;
             }
             (Some(before), Some(after)) if before == after => {
-                return Err((
-                    "verify",
-                    format!(
-                        "{NOTIFICATION_BUS} is still owned by pid {after}, the process that owned it before, so the old shell is still serving notifications"
-                    ),
-                ));
+                if Instant::now() >= deadline {
+                    return Err((
+                        "verify",
+                        format!(
+                            "{NOTIFICATION_BUS} is still owned by pid {after}, the process that owned it before, so the old shell never released the notification bus"
+                        ),
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
             }
             (_, Some(after)) => {
                 progress(&format!(
@@ -1667,24 +1671,14 @@ fn run(program: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
     std::process::Command::new(program).args(args).output()
 }
 
-/// Every pid whose `comm` is exactly `name`.
+/// Every pid that is this shell, read from `/proc`.
 ///
-/// Read from `/proc` rather than shelling out to `pgrep`, matching what
-/// `shell.rs` already does to decide whether a shell is running.
-fn pids_of(name: &str) -> Vec<u32> {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    let mut pids: Vec<u32> = entries
-        .flatten()
-        .filter_map(|e| {
-            let pid = e.file_name().to_str()?.parse::<u32>().ok()?;
-            let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
-            (comm.trim() == name).then_some(pid)
-        })
-        .collect();
-    pids.sort_unstable();
-    pids
+/// Delegates to [`crate::shell::pids_matching`] so detection, stopping and
+/// verification all agree: a shell whose process name differs from its binary —
+/// Caelestia on the shared `quickshell` runtime — has to be found by the same
+/// rule everywhere, and `Shell::running` uses that same function.
+fn pids_of(binary: &str, argv_match: &[&str]) -> Vec<u32> {
+    crate::shell::pids_matching(binary, argv_match)
 }
 
 fn signal(pids: &[u32], sig: &str) -> std::io::Result<()> {

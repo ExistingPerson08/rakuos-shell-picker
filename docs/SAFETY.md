@@ -401,7 +401,7 @@ syaratnya terpenuhi". Yang tidak punya syarat ada di tabel kedua.
 |---|---|
 | Menulis sebagian dari `~/.config/hypr` | Filenya saling merujuk. Menyisipkan satu file ke direktori milik shell lain meninggalkan config yang setengah milik dua shell, dan gagalnya baru terasa saat Hyprland sudah start. Diganti penuh atau tidak disentuh. |
 | `rm -rf` config tanpa backup yang terbukti tersimpan | Backup yang gagal membatalkan switch. Tidak ada kondisi di mana config hilang dan switch tetap jalan. Ini berlaku sama untuk langkah bersih: ukurannya bukan "backup ada", tapi "backup ini menggambarkan file ini". |
-| Menghapus runtime bersama **yang masih dipakai shell tujuan** | `quickshell-git` dipakai shell lain juga — Caelestia dan Ambxst berjalan di atasnya dan keduanya tidak punya paket, jadi mencabutnya berarti shell baru tanpa runtime dan tanpa cara mengembalikannya. `switch::uninstall` men-drop setiap paket yang ada di `runtime_packages` milik shell tujuan sebelum package manager melihatnya. Membalik arahnya: DMS → Noctalia **menghapus** quickshell, karena Noctalia biner asli dan tidak membutuhkannya. |
+| Menghapus runtime bersama **yang masih dipakai shell tujuan** | `quickshell-git` dipakai shell lain juga — Ambxst (tanpa paket) dan Caelestia (paketnya sendiri, tetap dijalankan di atasnya) berjalan di atasnya, jadi mencabutnya berarti shell baru tanpa runtime dan tanpa cara mengembalikannya. `switch::uninstall` men-drop setiap paket yang ada di `runtime_packages` milik shell tujuan sebelum package manager melihatnya. Membalik arahnya: DMS → Noctalia **menghapus** quickshell, karena Noctalia biner asli dan tidak membutuhkannya. |
 
 ### Membersihkan shell yang ditinggalkan
 

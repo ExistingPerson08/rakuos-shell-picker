@@ -38,7 +38,7 @@ src/compositor/             satu folder per compositor
       dms/
         mod.rs
         skel/
-      caelestia/mod.rs      belum ada skel — switch ke Caelestia ditolak
+      caelestia/mod.rs + skel    skel/.config/hypr milik upstream Caelestia
       ambxst/mod.rs         belum ada skel — config-nya belum diketahui
   niri/
     mod.rs                  kosong — dicadangkan, catatannya di sana
@@ -240,7 +240,9 @@ Benturan dua aturan ini di dua arah yang berbeda adalah disengaja:
   lebih dari paket milik shell yang pergi: `switch::uninstall` men-drop setiap
   paket yang ada di daftar ini milik **shell yang sedang dinyalakan**, sebelum
   package manager melihatnya. Caelestia dan Ambxst berjalan di atas `quickshell`
-  dan keduanya tidak punya paket, jadi tanpa guard ini DMS → Caelestia akan
+  dan keduanya berjalan di atas `quickshell` — Ambxst tanpa paket, Caelestia
+  dengan paket yang tetap dijalankan di atasnya — jadi tanpa guard ini arah
+  DMS → Caelestia/Ambxst akan
   mencabut runtime shell baru. Sebaliknya, Noctalia kosong di daftar ini —
   itulah yang membuat arah DMS → Noctalia justru menghapus `quickshell-git`.
   Salah isi hanya bisa berakibat paket **ditahan**, bukan shell rusak, jadi

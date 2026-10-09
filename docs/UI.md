@@ -121,7 +121,7 @@ memindah shell yang sedang berjalan, bukan memasang paket:
 | Compositor berbeda | `Blocked` | `niri is not the running compositor.` | **niri is running.** Switch image in "RakuOS system management". |
 | Compositor tidak terdeteksi | `Blocked` | alasannya | Nothing was changed. |
 | Shell sudah hidup | `Already running` | `Noctalia is already running.` | Nothing to switch to. |
-| Shell belum terpasang | `Not installed` | `Caelestia Shell is not installed.` | Packages come from the **RakuOS** image. |
+| Shell belum terpasang | `Not installed` | `Caelestia Shell is not installed.` | The backend offers to install it after the backup. |
 | Shell terpasang dan idle | `Switch to X?` | `Noctalia is running now.` | Configuration is backed up and never deleted. |
 
 - **Pendek, bukan paragraf.** Awalnya tiap popup dua paragraf; yang penting
@@ -164,12 +164,13 @@ compositor. Niri pernah jadi kolom kedua dan sudah dihapus.
 | Shell | hyprland | catatan |
 |---|---|---|
 | Noctalia | ya | di base image |
-| DankMaterialShell | ya | satu-satunya yang perlu diinstal |
+| DankMaterialShell | ya | diinstal dari repository (dua stage) |
+| Caelestia Shell | ya | diinstal dari repository (runtime + paket + font) |
 | Ambxst | ya | ditolak: tidak ada repository |
-| Caelestia Shell | ya | ditolak: tidak ada repository |
 
-Caelestia dan Ambxst **tidak punya `skel/`** dan itu disengaja: keduanya tidak
-ada di repository mana pun, jadi dialog menolak mereka di `Not installed` —sebelum backup diambil, bukan sesudahnya. Kalau skel-less diizinkan hanya
+Ambxst satu-satunya yang **tidak punya `skel/`** dan itu disengaja: ia tidak
+ada di repository mana pun, jadi dialog menolaknya di `Not installed` —
+sebelum backup diambil, bukan sesudahnya. Kalau skel-less diizinkan hanya
 pada shell yang memang tidak bisa diinstal, itu yang diuji
 `a_skel_is_missing_only_where_the_shell_cannot_be_installed`. Niri melanggar
 aturan itu karena punya shell yang bisa diinstal, dan itu sebabnya ia dihapus

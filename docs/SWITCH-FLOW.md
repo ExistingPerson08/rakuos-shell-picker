@@ -99,8 +99,11 @@ Paket yang sudah terpasang di lewati (`stage N: already installed, skipping`).
 Kalau prompt polkit dibatalkan, switch gagal dengan pesan *"the permission
 prompt for stage N was dismissed. Your backup is still in place."*
 
-Noctalia, Caelestia, dan Ambxst **tidak punya** `install_plan`. Pada arah ini
-artinya tidak ada satu pun paket yang disentuh.
+Noctalia dan Ambxst **tidak punya** `install_plan`, dan Caelestia maupun DMS
+punya. Pada arah yang tidak menyentuh apa pun (menuju Noctalia/Ambxst) artinya
+tidak ada satu pun paket yang diinstal; menuju DMS atau Caelestia, stage-stage
+di ataslah yang jalan — runtime `quickshell-git` di stage pertama, lalu paket
+shell dan temannya di stage kedua.
 
 ## 3. Apply dan Stop
 
@@ -458,7 +461,15 @@ Lima hal yang membuat daftar ini berbentuk begitu:
   | Target | `quickshell-git` |
   |---|---|
   | Noctalia | **dihapus** — biner asli, tidak membutuhkannya |
-  | Caelestia / Ambxst | **dipertahankan** — keduanya berjalan di atasnya dan tidak punya paket, jadi mencabutnya = shell baru tanpa runtime dan tanpa `install_plan` untuk mengembalikannya |
+  | DMS | **dipertahankan** — DMS berjalan di atasnya, jadi mencabutnya = shell baru tanpa runtime |
+  | Caelestia | **dipertahankan** — Caelestia berjalan di atasnya, jadi mencabutnya = shell baru tanpa runtime |
+
+  Aturan yang sama berlaku pada arah sebaliknya, dan itu yang membuat Caelestia
+  → DMS maupun Caelestia → Noctalia sama bersihnya dengan DMS → keduanya:
+  plan pencopotan Caelestia berisi `caelestia-shell` **dan** `quickshell-git`
+  (apa yang diinstalnya pula), lalu guard di atas men-drop runtime hanya kalau
+  shell tujuan memang memakainya — tujuan DMS mempertahankan, tujuan Noctalia
+  membuang. Tidak ada yang ditinggal sebagai yatim untuk `rum autoremove`.
 
 - **`matugen` ikut dihapus, tetapi** `rum remove` menolak paket yang masih
   disyaratkan paket lain — solver adalah garis pertahanan kedua, bukan pertama.

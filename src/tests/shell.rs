@@ -207,7 +207,7 @@ fn a_packaged_shell_with_a_stale_binary_still_counts() {
 
 #[test]
 fn an_unpackaged_shell_needs_more_than_its_runtime() {
-    // quickshell exists because DMS dragged in noctalia-qs. Caelestia has no
+    // quickshell exists because DMS dragged in noctalia-qs. Ambxst has no
     // package and no config, so it is not installed.
     assert!(!installed_from(None, true, false));
 }

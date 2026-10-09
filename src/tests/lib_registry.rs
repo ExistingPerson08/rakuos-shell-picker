@@ -131,16 +131,16 @@ fn an_install_plan_names_the_same_package_as_the_shell() {
 }
 
 #[test]
-fn only_dms_can_be_installed_and_it_asks_for_polkit() {
-    // Deliberately a fact about today, not a general rule: when Caelestia
-    // and Ambxst get packaged this test is what should be updated.
+fn only_dms_and_caelestia_can_be_installed_and_they_use_polkit() {
+    // Deliberately a fact about today, not a general rule: when Ambxst gets
+    // packaged this test is what should be updated.
     let with_plan: BTreeSet<_> = compositor::all()
         .iter()
         .flat_map(|c| c.shells())
         .filter(|s| s.install_plan.is_some())
         .map(|s| s.id)
         .collect();
-    assert_eq!(with_plan, BTreeSet::from(["dms"]));
+    assert_eq!(with_plan, BTreeSet::from(["caelestia", "dms"]));
 
     let dms = super::shell::find("dms").expect("dms registered");
     let plan = dms.install_plan.expect("dms installs from a repository");
@@ -155,12 +155,29 @@ fn only_dms_can_be_installed_and_it_asks_for_polkit() {
     // which is the legacy Noctalia build and not a dependency of anything
     // current.
     assert!(!plan.command_line().contains("noctalia-qs"));
+
+    let caelestia = super::shell::find("caelestia").expect("caelestia registered");
+    let plan = caelestia
+        .install_plan
+        .expect("caelestia installs from a repository");
+    // Its own package, the runtime named in a stage of its own (mirroring
+    // DMS), and the three fonts nothing requires at the package level —
+    // without which the shell would start with blank glyphs.
+    assert_eq!(
+        plan.command_line(),
+        "pkexec rum install -y --refresh quickshell-git caelestia-shell \
+         google-rubik-fonts cascadia-code-nf-fonts material-symbols-fonts lxqt-policykit"
+    );
+    // The shell's own package must be among the packages it installs, or the
+    // availability check and the install would drift apart.
+    assert!(plan.packages().contains(&plan.package));
+    assert_eq!(plan.program, "pkexec");
 }
 
 #[test]
 fn a_shell_without_an_install_plan_has_nothing_to_install() {
-    // Noctalia is in the base image; Caelestia and Ambxst are in no repo.
-    for id in ["noctalia", "caelestia", "ambxst"] {
+    // Noctalia is in the base image; Ambxst is in no repo.
+    for id in ["noctalia", "ambxst"] {
         let shell = super::shell::find(id).unwrap_or_else(|| panic!("{id} registered"));
         assert!(
             shell.install_plan.is_none(),
@@ -840,7 +857,7 @@ fn a_skel_is_missing_only_where_the_shell_cannot_be_installed() {
 }
 
 #[test]
-fn the_two_shells_without_a_skel_are_the_two_that_cannot_be_installed() {
+fn the_shell_without_a_skel_is_the_one_that_cannot_be_installed() {
     // Records the deliberate state rather than leaving it implied, because
     // "no skel" and "no package" are the same fact here and one of them
     // changing should be noticed.
@@ -849,22 +866,23 @@ fn the_two_shells_without_a_skel_are_the_two_that_cannot_be_installed() {
     // package and no install plan, and that is correct, because it is in the
     // base image and never needs installing. It also has a skel, which is why
     // the rule above leaves it alone.
-    for id in ["caelestia", "ambxst"] {
-        let shell = super::shell::find(id).expect("registered");
-        assert!(
-            shell.package.is_none(),
-            "{id} is in no repository, so it must not claim a package"
-        );
-        assert!(
-            shell.install_plan.is_none(),
-            "{id} has nothing to install from, so it must not claim a plan"
-        );
-        assert!(
-            !crate::apply::skel_for("hyprland", id).is_dir(),
-            "{id} cannot be installed and so is refused before the backup; a \
-             skel for it would imply a switch that can be completed"
-        );
-    }
+    //
+    // Caelestia is the other: it gained a package, an install plan and a skel
+    // at the same time, which is the order the rule above enforces.
+    let ambxst = super::shell::find("ambxst").expect("ambxst registered");
+    assert!(
+        ambxst.package.is_none(),
+        "ambxst is in no repository, so it must not claim a package"
+    );
+    assert!(
+        ambxst.install_plan.is_none(),
+        "ambxst has nothing to install from, so it must not claim a plan"
+    );
+    assert!(
+        !crate::apply::skel_for("hyprland", "ambxst").is_dir(),
+        "ambxst cannot be installed and so is refused before the backup; a \
+         skel for it would imply a switch that can be completed"
+    );
 }
 
 #[test]

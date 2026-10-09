@@ -74,7 +74,7 @@ Inti dari proyek. `switch::prepare` (langkah 1–3) dan `apply::apply_with`
 | E3 | Rollback kalau switch gagal | selesai — `Apply::Failed { rolled_back }` |
 | E4 | Backend Noctalia | selesai (registry, `StartMechanism::Autostart`) |
 | E5 | Backend DMS | selesai (registry, `StartMechanism::SystemdUserUnit`) |
-| E6 | Backend Caelestia | selesai sebagai registrasi; switch ke sana ditolak (verifikasi belum terselesaikan) |
+| E6 | Backend Caelestia | selesai — paket + install/uninstall plan + skel + probe proses `qs -c caelestia` |
 | E7 | Backend Ambxst | selesai sebagai registrasi; switch ke sana ditolak (`config_dir` belum diketahui) |
 | E8 | Stop shell lama dengan rapi (bukan `kill -9`) | selesai — SIGTERM, tunggu, batas waktu, `kill -KILL` hanya upaya terakhir |
 | E9 | Start shell baru dengan mekanisme yang benar | selesai — `StartMechanism`, dibaca lagi oleh `verify` |

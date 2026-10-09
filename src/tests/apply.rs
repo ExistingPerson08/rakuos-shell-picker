@@ -1,5 +1,5 @@
 use super::*;
-use crate::compositor::hyprland::shells::{dms, noctalia};
+use crate::compositor::hyprland::shells::{caelestia, dms, noctalia};
 use crate::compositor::hyprland::Hyprland;
 
 struct Temp(PathBuf);
@@ -453,11 +453,11 @@ fn pids_of_finds_this_process_and_ignores_a_name_nobody_has() {
     let comm = std::fs::read_to_string(format!("/proc/{me}/comm")).unwrap();
     let comm = comm.trim().to_string();
     assert!(
-        pids_of(&comm).contains(&me),
+        pids_of(&comm, &[]).contains(&me),
         "should find pid {me} by comm {comm}"
     );
     assert!(
-        pids_of("definitely-not-a-running-process-xyzzy").is_empty(),
+        pids_of("definitely-not-a-running-process-xyzzy", &[]).is_empty(),
         "a name nobody has must come back empty, not a guess"
     );
 }
@@ -589,11 +589,70 @@ fn switching_back_to_noctalia_would_bring_its_launcher_back() {
 }
 
 #[test]
+fn switching_to_caelestia_would_hide_the_noctalia_launcher() {
+    // The same contract DMS holds, for the shell that joined it: whatever is
+    // running when the switch lands, the launcher of the shell that just left
+    // must not still be on offer in the menu.
+    let mut said = Vec::new();
+    let entries = plan(
+        &caelestia::SHELL,
+        &Hyprland,
+        Path::new("/nonexistent-backups"),
+        &skel_for("hyprland", "caelestia"),
+        &mut |s| said.push(s.to_string()),
+    )
+    .expect("the real caelestia skel should plan cleanly");
+
+    let launcher = entries
+        .iter()
+        .find(|e| e.rel == LAUNCHER)
+        .expect("caelestia must carry the launcher path so it can be hidden");
+    let body = std::fs::read_to_string(&launcher.src).unwrap();
+    assert!(
+        body.contains("NoDisplay=true"),
+        "the staged override would not hide the launcher: {body}"
+    );
+
+    assert!(
+        !entries.iter().any(|e| e.rel == ".local/share/applications"),
+        "listing the whole directory would replace every launcher the user has"
+    );
+}
+
+#[test]
+fn caelestia_skel_carries_the_config_dir_its_hyprland_bootstrap_needs() {
+    // The dir `hyprland.lua` writes `hypr-vars.lua` and `hypr-user.lua` into.
+    // Without the skel holding it, `plan` has no source for `.config/caelestia`
+    // and the switch logs "will start on its own defaults" — leaving the
+    // directory uncreated, so upstream's `maybe_create` (an `io.open` that
+    // fails *silently* when the parent is missing) never writes the files and
+    // `require("hypr-vars")` dies at startup.
+    let mut said = Vec::new();
+    let entries = plan(
+        &caelestia::SHELL,
+        &Hyprland,
+        Path::new("/nonexistent-backups"),
+        &skel_for("hyprland", "caelestia"),
+        &mut |s| said.push(s.to_string()),
+    )
+    .expect("the real caelestia skel should plan cleanly");
+
+    let config = entries
+        .iter()
+        .find(|e| e.rel == ".config/caelestia")
+        .expect("the skel must carry .config/caelestia so the shell can bootstrap");
+    assert!(
+        config.src.join("hypr-vars.lua").is_file(),
+        "hyprland.lua requires hypr-vars, so the skel has to provide it"
+    );
+}
+
+#[test]
 fn a_shared_xdg_directory_is_never_replaced_as_a_whole() {
     // `swap` renames the live path aside and puts the staged one in place; it
     // does not merge. Any directory shared with the rest of the desktop listed
     // as a skel extra would take the user's other files with it.
-    for shell in [&dms::SHELL, &noctalia::SHELL] {
+    for shell in [&dms::SHELL, &noctalia::SHELL, &caelestia::SHELL] {
         for rel in shell.skel_extra_paths {
             assert!(
                 !matches!(

@@ -18,6 +18,7 @@ static INSTALLED_IDLE: Shell = Shell {
     package: Some("fake"),
     binary: "basename",
     start_argv: &["basename"],
+    process_match: &[],
     config_dir: None,
     state_dir: None,
     install_plan: Some(InstallPlan {
@@ -54,6 +55,7 @@ static NOT_INSTALLED: Shell = Shell {
     package: None,
     binary: "definitely-not-here",
     start_argv: &["definitely-not-here"],
+    process_match: &[],
     config_dir: None,
     state_dir: None,
     install_plan: None,
@@ -78,6 +80,7 @@ static ALREADY_RUNNING: Shell = Shell {
     package: None,
     binary: "bash",
     start_argv: &["bash"],
+    process_match: &[],
     config_dir: None,
     state_dir: None,
     install_plan: None,

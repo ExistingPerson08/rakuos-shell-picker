@@ -140,6 +140,24 @@ pub struct Identity {
     pub package: Option<&'static str>,
     pub binary: &'static str,
     pub start_argv: &'static [&'static str],
+    /// Extra arguments that identify this shell's live process when its `comm`
+    /// is not `binary`.
+    ///
+    /// Most shells here are their own process, so matching `/proc/<pid>/comm`
+    /// against `binary` is enough. Caelestia is not: `caelestia shell -d` hands
+    /// off to the shared `quickshell` runtime, and the process that ends up on
+    /// screen is `qs -c caelestia …` whose `comm` is `qs`, never `caelestia`.
+    /// Name matching alone would then read a running Caelestia as "not running",
+    /// so `stop` would report a clean stop while doing nothing and `verify`
+    /// would time out and roll the switch back.
+    ///
+    /// Each entry is one whole argument, and the list must appear **consecutively
+    /// and in order** in the process's `cmdline`. A Caelestia process is matched
+    /// by `["-c", "caelestia"]`, which is specific enough that the sibling
+    /// quickshell shells (`noctalia-qs`, DMS) do not accidentally match it.
+    ///
+    /// Empty is the usual case, and means `comm` alone decides.
+    pub process_match: &'static [&'static str],
     /// How to install this shell if it is missing, or `None` when there is
     /// nothing to run. See [`InstallPlan`].
     pub install_plan: Option<InstallPlan>,
@@ -240,10 +258,11 @@ pub struct Identity {
     /// shell, relative to a removal plan.
     ///
     /// The guard that lets a removal plan take more than its own packages out.
-    /// `quickshell` is the case the field exists for: DMS installs it, Caelestia
-    /// and Ambxst both run on it, and neither of those is packaged — so a switch
-    /// away from DMS that removed it would leave the shell just started with no
-    /// runtime and no `install_plan` to put one back. The outgoing shell's
+    /// `quickshell` is the case the field exists for: DMS installs it, and
+    /// Caelestia and Ambxst both run on it — but only Ambxst has no package to
+    /// put one back with, so a switch away from DMS that removed the runtime
+    /// would leave whichever shell it handed off to dead with no `install_plan`
+    /// to replace it. The outgoing shell's
     /// uninstall therefore skips any package the incoming shell declares here,
     /// which turns "never remove a shared runtime" from a rule somebody has to
     /// remember into a check the code performs.
@@ -323,6 +342,10 @@ pub struct Shell {
     pub package: Option<&'static str>,
     pub binary: &'static str,
     pub start_argv: &'static [&'static str],
+    /// See [`Identity::process_match`]. Carried here for the same reason as the
+    /// rest: `stop` and `verify` read the shell being switched through `Shell`,
+    /// so which process counts as this shell has to travel with it.
+    pub process_match: &'static [&'static str],
     pub config_dir: Option<&'static str>,
     /// Where this shell keeps state that is not configuration, relative to
     /// `$HOME`. Backed up alongside the config: Noctalia keeps most of itself
@@ -430,6 +453,7 @@ impl Shell {
             package: identity.package,
             binary: identity.binary,
             start_argv: identity.start_argv,
+            process_match: identity.process_match,
             companion_systemd_user_units: identity.companion_systemd_user_units,
             companion_paths: identity.companion_paths,
             install_plan: identity.install_plan,
@@ -456,9 +480,9 @@ pub const PICKER_DIR: &str = "rakuos-shell-picker";
 /// How this shell gets installed when it is not there yet.
 ///
 /// Declared next to the shell rather than in a dispatch table, because whether a
-/// shell can be installed is a fact about that shell: DMS ships in the RakuOS
-/// repository, Noctalia is already in the base image, and Caelestia and Ambxst
-/// are in no repository at all.
+/// shell can be installed is a fact about that shell: DMS and Caelestia ship in
+/// a repository, Noctalia is already in the base image, and Ambxst is in no
+/// repository at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InstallPlan {
     /// The package that identifies this shell, and what availability is checked
@@ -600,7 +624,7 @@ impl InstallPlan {
 ///
 /// Declared beside [`InstallPlan`] for the same reason it exists: whether a
 /// shell can be removed is a fact about that shell, not a decision for the
-/// switch to invent. DMS can be removed, Caelestia and Ambxst have no package
+/// switch to invent. DMS and Caelestia can be removed, Ambxst has no package
 /// to remove, and Noctalia is in the base image — its plan stays `None` and
 /// `a_shell_that_cannot_be_installed_is_not_uninstalled_anyway` holds that line.
 ///
@@ -746,7 +770,7 @@ impl Shell {
     }
 
     pub fn running(&self) -> bool {
-        process_running(self.binary)
+        !pids_matching(self.binary, self.process_match).is_empty()
     }
 
     /// The line under the shell name on its card.
@@ -781,8 +805,8 @@ fn installed_from(origin: Option<Origin>, binary: bool, config: bool) -> bool {
         Some(origin) => origin.installed() || binary,
         // Nothing to ask about, so the binary has to carry the whole answer, and
         // it cannot be trusted alone: installing DMS pulls in noctalia-qs, which
-        // puts quickshell in PATH, and Caelestia runs on that same runtime. The
-        // binary would then claim Caelestia is installed while its config
+        // puts quickshell in PATH, and Ambxst runs on that same runtime. The
+        // binary would then claim Ambxst is installed while its config
         // directory does not exist. Requiring the config too keeps a shared
         // runtime from standing in for a shell that was never set up.
         None => binary && config,
@@ -833,21 +857,50 @@ pub fn package_origin(pkg: &str) -> Origin {
     Origin::from_flags(in_rpmdb(None, pkg), in_rpmdb(overlay_dbpath(), pkg))
 }
 
-fn process_running(name: &str) -> bool {
-    std::fs::read_dir("/proc")
-        .map(|entries| {
-            entries.flatten().any(|e| {
-                e.file_name()
-                    .to_str()
-                    .and_then(|p| p.parse::<u32>().ok())
-                    .is_some_and(|pid| {
-                        std::fs::read_to_string(format!("/proc/{pid}/comm"))
-                            .map(|c| c.trim() == name)
-                            .unwrap_or(false)
-                    })
-            })
+/// Every pid that is this shell, sorted.
+///
+/// A process matches when its `comm` is exactly `binary`, or — when
+/// `argv_match` is not empty — when its `cmdline` contains those arguments
+/// consecutively and in order. The second rule exists for shells that run on a
+/// shared runtime and therefore have a process name that says nothing about
+/// which shell it is; see [`Identity::process_match`]. Read from `/proc` rather
+/// than shelling out, and shared with `apply` so detection, stopping and
+/// verification cannot disagree about what "running" means.
+pub fn pids_matching(binary: &str, argv_match: &[&str]) -> Vec<u32> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let mut pids: Vec<u32> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let pid = entry.file_name().to_str()?.parse::<u32>().ok()?;
+            if std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                .map(|comm| comm.trim() == binary)
+                .unwrap_or(false)
+            {
+                return Some(pid);
+            }
+            if argv_match.is_empty() {
+                return None;
+            }
+            let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+            let args: Vec<&[u8]> = raw.split(|b| *b == 0).filter(|s| !s.is_empty()).collect();
+            argv_contains(&args, argv_match).then_some(pid)
         })
-        .unwrap_or(false)
+        .collect();
+    pids.sort_unstable();
+    pids
+}
+
+/// Whether `needle` appears as a run of whole arguments inside `args`.
+fn argv_contains(args: &[&[u8]], needle: &[&str]) -> bool {
+    needle.len() <= args.len()
+        && args.windows(needle.len()).any(|window| {
+            window
+                .iter()
+                .zip(needle)
+                .all(|(arg, want)| *arg == want.as_bytes())
+        })
 }
 
 #[cfg(test)]

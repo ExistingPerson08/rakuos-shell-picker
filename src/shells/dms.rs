@@ -71,6 +71,7 @@ pub const IDENTITY: Identity = Identity {
     package: Some("dms"),
     binary: "dms",
     start_argv: &["dms", "run"],
+    process_match: &[],
     install_plan: Some(InstallPlan {
         package: "dms",
         stages: &[

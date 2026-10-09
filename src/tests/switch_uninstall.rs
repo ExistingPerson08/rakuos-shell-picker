@@ -67,6 +67,39 @@ fn the_removal_plan_takes_the_runtime_it_was_the_one_to_install() {
 }
 
 #[test]
+fn leaving_caelestia_takes_the_runtime_unless_the_next_shell_runs_on_it() {
+    // The same contract DMS holds, spelled out for the shell that joined it.
+    // Caelestia's install put `quickshell-git` on the machine, so its removal
+    // plan has to be able to take it off again — otherwise leaving Caelestia
+    // for Noctalia, which runs on nothing, would strand an orphan for `rum
+    // autoremove` to find. The shared-runtime guard is the switch's, applied
+    // against the target: leaving for DMS or Ambxst keeps the runtime, exactly
+    // as it does for a reversed switch.
+    let plan = crate::shell::find("caelestia")
+        .expect("registered")
+        .uninstall_plan
+        .expect("caelestia can be installed, so it can be removed");
+
+    assert_eq!(
+        plan.packages(),
+        vec!["caelestia-shell", "quickshell-git", "lxqt-policykit"],
+        "every package the install put there has to be removable"
+    );
+
+    let dms = crate::shell::find("dms").expect("registered");
+    let kept: Vec<_> = plan
+        .packages()
+        .into_iter()
+        .filter(|p| dms.runtime_packages.contains(p))
+        .collect();
+    assert_eq!(
+        kept,
+        vec!["quickshell-git"],
+        "switching Caelestia → DMS keeps the runtime DMS runs on"
+    );
+}
+
+#[test]
 fn a_package_the_shell_being_switched_to_runs_on_is_never_sent_to_the_package_manager() {
     // The guard that replaced the blanket "never remove a shared runtime".
     // `keep` is `target.runtime_packages` read by `apply`, and it is applied

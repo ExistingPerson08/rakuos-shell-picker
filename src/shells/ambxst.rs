@@ -23,6 +23,7 @@ pub const IDENTITY: Identity = Identity {
     package: None,
     binary: "ambxst",
     start_argv: &["ambxst"],
+    process_match: &[],
     install_plan: None,
     uninstall_plan: None,
     companion_systemd_user_units: &[],
