@@ -166,15 +166,16 @@ compositor. Niri pernah jadi kolom kedua dan sudah dihapus.
 | Noctalia | ya | di base image |
 | DankMaterialShell | ya | diinstal dari repository (dua stage) |
 | Caelestia Shell | ya | diinstal dari repository (runtime + paket + font) |
-| Ambxst | ya | tanpa paket — hanya bisa di-switch kalau sudah terpasang |
+| Ambxst | ya | diinstal dari repository (runtime + paket + companion + font) |
 
-Ambxst tidak ada di repository mana pun, jadi dialog menolaknya di
-`Not installed` sampai ia benar-benar ada di mesin — sebelum backup diambil,
-bukan sesudahnya. Ia **punya `skel/`** sendiri sekarang (lokasi config-nya sudah
-diketahui: `.config/ambxst`), jadi begitu terpasang, switch ke sana bisa
-diselesaikan. Yang menahan bukan skel yang kosong melainkan aturan "shell yang
-tidak bisa diinstal harus sudah ada", dan itu diuji
-`a_shell_that_cannot_be_installed_is_only_switchable_when_it_is_already_there`.
+Ambxst ada di repository `rakuos`, jadi ia punya paket, install plan, uninstall
+plan, dan `skel/` sendiri (lokasi config-nya `.config/ambxst`). Karena punya
+install plan, dialog tidak lagi menolaknya lewat aturan `Unavailable`; ia
+diinstal seperti DMS dan Caelestia, dan backup tetap diambil sebelum switch
+seperti biasa. Data yang Ambxst dan companion-nya simpan di luar `config_dir`
+(`.config/axctl` untuk catatan brightness, `.local/share/ambxst` untuk chat dan
+clipboard, `.local/share/ambxst-notes` untuk catatan) ikut tersimpan lewat
+`companion_paths`.
 
 Aturan yang lebih umum: **skel boleh absen hanya di tempat shell tidak bisa
 diinstal** — diuji

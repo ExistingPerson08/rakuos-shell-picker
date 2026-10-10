@@ -70,6 +70,18 @@ Yang disimpan, lengkap dengan alasannya:
 | 7 | `.local/state/noctalia/` | `state_dir` — di mesin ini berisi **438 file**. Sebagian besar setup Noctalia yang sebenarnya ada di sini, bukan di `.config` |
 | 8 | `.local/share/applications/dev.noctalia.Noctalia.desktop` | `backup_extra_paths` — launcher yang akan ditimpa switch |
 
+Tabel di atas adalah separuh **shell yang ditinggalkan**. Swap juga menimpa
+config dan state shell **tujuan**, jadi `backup_sources_for` menambahkan jalur
+milik DMS yang sudah ada di mesin — `.config/DankMaterialShell`,
+`.local/state/DankMaterialShell` dan companion-nya (`.config/dankcal`,
+`.config/dgop`, `.local/share/dankcal`, `.local/state/dankcal`). Di mesin yang
+belum pernah menjalankan DMS semuanya dicatat `absent`; di mesin yang pernah,
+config lama itulah yang bikin tidak ada `.pre-*` tertinggal: dulu ia hanya
+disimpan sebagai aside yang tidak direproduksi backup mana pun, sekarang ia
+disalin ke backup dan asidenya dibuang seperti yang lain. Jalur yang sudah
+tercakup daftar keluar (mis. launcher dan `SHARED_PATHS`) tidak didaftarkan dua
+kali.
+
 Path yang tidak ada di mesin **tetap ikut dalam daftar** dan dicatat sebagai
 `absent`. Itu yang membuat restore bisa membedakan "memang tidak pernah ada"
 dari "hilang".
@@ -99,11 +111,11 @@ Paket yang sudah terpasang di lewati (`stage N: already installed, skipping`).
 Kalau prompt polkit dibatalkan, switch gagal dengan pesan *"the permission
 prompt for stage N was dismissed. Your backup is still in place."*
 
-Noctalia dan Ambxst **tidak punya** `install_plan`, dan Caelestia maupun DMS
-punya. Pada arah yang tidak menyentuh apa pun (menuju Noctalia/Ambxst) artinya
-tidak ada satu pun paket yang diinstal; menuju DMS atau Caelestia, stage-stage
-di ataslah yang jalan — runtime `quickshell-git` di stage pertama, lalu paket
-shell dan temannya di stage kedua.
+Hanya Noctalia **tidak punya** `install_plan` (ia ada di base image), sedangkan
+DMS, Caelestia dan Ambxst punya. Pada arah yang tidak menyentuh apa pun (menuju
+Noctalia) artinya tidak ada satu pun paket yang diinstal; menuju DMS, Caelestia
+atau Ambxst, stage-stage di ataslah yang jalan — runtime `quickshell-git` di
+stage pertama, lalu paket shell dan temannya di stage kedua.
 
 ## 3. Apply dan Stop
 

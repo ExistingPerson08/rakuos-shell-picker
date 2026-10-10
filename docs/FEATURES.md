@@ -75,7 +75,7 @@ Inti dari proyek. `switch::prepare` (langkah 1–3) dan `apply::apply_with`
 | E4 | Backend Noctalia | selesai (registry, `StartMechanism::Autostart`) |
 | E5 | Backend DMS | selesai (registry, `StartMechanism::SystemdUserUnit`) |
 | E6 | Backend Caelestia | selesai — paket + install/uninstall plan + skel + probe proses `qs -c caelestia` |
-| E7 | Backend Ambxst | selesai — tanpa paket dan tanpa install plan; punya `config_dir`/`state_dir` + skel (`generated_paths` untuk warna Qt), jadi switch ke sana jalan kalau sudah terpasang dan ditolak `Unavailable` kalau tidak |
+| E7 | Backend Ambxst | selesai — paket + install/uninstall plan + skel + probe proses `ambxst`; runtime bersama DMS (`quickshell-git`, `matugen`) ditahan lewat `runtime_packages` |
 | E8 | Stop shell lama dengan rapi (bukan `kill -9`) | selesai — SIGTERM, tunggu, batas waktu, `kill -KILL` hanya upaya terakhir |
 | E9 | Start shell baru dengan mekanisme yang benar | selesai — `StartMechanism`, dibaca lagi oleh `verify` |
 | E10 | Deteksi shell yang jalan tanpa lewat daftar kita | selesai — `process_running` lewat `/proc` |

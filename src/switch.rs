@@ -97,6 +97,51 @@ pub fn backup_sources(
     paths
 }
 
+/// Every path a switch from `current` to `target` must copy before it starts.
+///
+/// [`backup_sources`] is the outgoing half, and on its own it is not enough: the
+/// swap replaces the target's configuration and state as well, so a target that
+/// has been on this machine before has files the switch is about to overwrite.
+/// Leaving them out is what left a `.config/<shell>.pre-*` aside on disk after
+/// every switch, because the copy the swap renamed aside was in no backup and
+/// [`crate::apply`] then kept it rather than delete the only copy. Adding the
+/// target's own paths here puts those bytes in the backup, so the aside is
+/// reproduced byte for byte and dropped like the rest.
+///
+/// The target's paths are recorded under the outgoing shell's name. That is the
+/// one thing this does not try to fix: [`crate::apply`] restores a shell's config
+/// from a backup named for *that* shell, so the copy here is a way to keep the
+/// bytes, not a way to bring the target's old config back. What comes back on the
+/// next switch to it is the era it left behind, and this only makes sure nothing
+/// is lost in between.
+pub fn backup_sources_for(
+    home: &Path,
+    compositor: &dyn Compositor,
+    current: Option<&'static Shell>,
+    target: &'static Shell,
+) -> Vec<PathBuf> {
+    let mut paths = backup_sources(home, compositor, current);
+    for relative in [target.config_dir, target.state_dir]
+        .into_iter()
+        .flatten()
+        .chain(target.skel_extra_paths.iter().copied())
+        .chain(target.backup_extra_paths.iter().copied())
+        .chain(target.generated_paths.iter().copied())
+        .chain(target.companion_paths.iter().copied())
+    {
+        let path = home.join(relative);
+        // Skip anything the outgoing list already covers. Most of the target's
+        // declared paths are: its generated themes sit inside `SHARED_PATHS`, and
+        // the launcher it overwrites is the same file the outgoing shell backs
+        // up. Adding them anyway would copy the same tree twice and put two
+        // overlapping keys in the manifest.
+        if !paths.iter().any(|saved| path.starts_with(saved)) {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
 #[cfg(test)]
 #[path = "tests/switch.rs"]
 mod tests;
@@ -234,14 +279,15 @@ pub fn prepare(
         });
     }
 
-    // Step 3: back up. Only the shell being left behind contributes its own
-    // paths; the shared ones are saved on every switch.
+    // Step 3: back up. The shell being left behind contributes its own paths,
+    // and the target contributes whatever it already has on this machine, because
+    // the swap is about to overwrite that too. See [`backup_sources_for`].
     let stamp = timestamp();
     let name = format!(
         "{stamp}-{compositor_id}-{}",
         running.map(|s| s.id).unwrap_or("none")
     );
-    let sources = backup_sources(home, compositor, running);
+    let sources = backup_sources_for(home, compositor, running, target);
     let backup = Backup::create(backups_root, &name, &sources, home).map_err(|err| {
         Refusal::BackupFailed {
             reason: format!("{err:#}"),

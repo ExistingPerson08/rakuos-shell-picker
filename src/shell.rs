@@ -171,17 +171,21 @@ pub struct Identity {
     /// subtly wrong, which is the kind of fault nobody notices until later. Empty
     /// means the shell needs nothing else, which is the common case.
     pub companion_systemd_user_units: &'static [&'static str],
-    /// Data paths belonging to this shell's companion programs, relative to
-    /// `$HOME`.
+    /// Data paths the shell itself or its companion programs keep, relative to
+    /// `$HOME`, that a person would want back.
     ///
     /// Not the companions themselves — those are
-    /// [`Self::companion_systemd_user_units`] — but where they keep what a person
-    /// would want back. DMS's calendar is `dankcalendar-git`, and it owns
-    /// `~/.local/share/dankcal` (its database and keyring) and
-    /// `~/.local/state/dankcal`; `dgop` owns `~/.config/dgop`. Nothing installs
-    /// these: the programs write them the first time they run, so no skel carries
-    /// them and a switch that ignored them would drop the calendar on the floor
-    /// the moment DMS left.
+    /// [`Self::companion_systemd_user_units`] — but what they, or the shell,
+    /// store that is neither configuration nor state. DMS's calendar is
+    /// `dankcalendar-git`, and it owns `~/.local/share/dankcal` (its database and
+    /// keyring) and `~/.local/state/dankcal`; `dgop` owns `~/.config/dgop`.
+    /// Ambxst keeps its chat history and pinned clipboard in
+    /// `~/.local/share/ambxst` and its notes in `~/.local/share/ambxst-notes`.
+    /// The paths already carry the shell's own data as well as a companion's, so
+    /// this is not the only sense the word is used in. Nothing installs any of
+    /// it: the programs write it the first time they run and no skel carries it,
+    /// so a switch that ignored it would drop the calendar, the chats or the
+    /// notes the moment the shell left.
     ///
     /// Handled like [`Self::generated_paths`] and not like
     /// [`Self::discard_paths`]: backed up with the shell, taken off the machine on
@@ -194,8 +198,9 @@ pub struct Identity {
     /// On [`Identity`] rather than [`Port`] because it is a fact about the shell:
     /// the same programs keep the same paths on every compositor.
     ///
-    /// Empty is the usual answer: a shell with no companions has nothing to
-    /// declare, and three of the four registered shells are exactly that.
+    /// Empty is the usual answer: a shell that keeps nothing outside its own
+    /// config and state has nothing to declare, and two of the four registered
+    /// shells are exactly that.
     pub companion_paths: &'static [&'static str],
     /// Files this shell renders into shared directories while it runs, relative
     /// to `$HOME`.
@@ -258,20 +263,19 @@ pub struct Identity {
     /// shell, relative to a removal plan.
     ///
     /// The guard that lets a removal plan take more than its own packages out.
-    /// `quickshell` is the case the field exists for: DMS installs it, and
-    /// Caelestia and Ambxst both run on it — but only Ambxst has no package to
-    /// put one back with, so a switch away from DMS that removed the runtime
-    /// would leave whichever shell it handed off to dead with no `install_plan`
-    /// to replace it. The outgoing shell's
+    /// `quickshell` is the case the field exists for: every packaged non-base
+    /// shell (DMS, Caelestia, Ambxst) installs it and runs on it, and `matugen`
+    /// is shared by DMS and Ambxst — so a switch between them that removed the
+    /// runtime would leave the shell it handed off to dead. The outgoing shell's
     /// uninstall therefore skips any package the incoming shell declares here,
     /// which turns "never remove a shared runtime" from a rule somebody has to
     /// remember into a check the code performs.
     ///
     /// Listing a package here can only ever cause it to be **kept**, so the
     /// failure mode of a wrong entry is a leftover rather than a broken shell —
-    /// which is why Ambxst is declared even though its own docs are vague about
-    /// it: upstream is a Quickshell shell, and keeping a package nobody needed
-    /// is the harmless direction to be wrong in.
+    /// which is why it is declared even where upstream's own `Requires` is vague
+    /// about the runtime: these are all Quickshell shells, and keeping a package
+    /// nobody needed is the harmless direction to be wrong in.
     ///
     /// On [`Identity`] rather than [`Port`] because it is a fact about the
     /// shell: what a shell runs on does not change from compositor to
@@ -480,9 +484,9 @@ pub const PICKER_DIR: &str = "rakuos-shell-picker";
 /// How this shell gets installed when it is not there yet.
 ///
 /// Declared next to the shell rather than in a dispatch table, because whether a
-/// shell can be installed is a fact about that shell: DMS and Caelestia ship in
-/// a repository, Noctalia is already in the base image, and Ambxst is in no
-/// repository at all.
+/// shell can be installed is a fact about that shell: DMS, Caelestia and Ambxst
+/// all ship in the `rakuos` repository, and Noctalia is already in the base
+/// image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InstallPlan {
     /// The package that identifies this shell, and what availability is checked
@@ -624,9 +628,9 @@ impl InstallPlan {
 ///
 /// Declared beside [`InstallPlan`] for the same reason it exists: whether a
 /// shell can be removed is a fact about that shell, not a decision for the
-/// switch to invent. DMS and Caelestia can be removed, Ambxst has no package
-/// to remove, and Noctalia is in the base image — its plan stays `None` and
-/// `a_shell_that_cannot_be_installed_is_not_uninstalled_anyway` holds that line.
+/// switch to invent. DMS, Caelestia and Ambxst can all be removed, and Noctalia
+/// is the only shell in the base image — its plan stays `None` and
+/// `the_shell_in_the_base_image_is_never_uninstalled` holds that line.
 ///
 /// The stages run in the order they are written, and there is usually only one:
 /// a plan names the shell's own packages and stops there. Shared runtimes are
@@ -805,10 +809,10 @@ fn installed_from(origin: Option<Origin>, binary: bool, config: bool) -> bool {
         Some(origin) => origin.installed() || binary,
         // Nothing to ask about, so the binary has to carry the whole answer, and
         // it cannot be trusted alone: installing DMS pulls in noctalia-qs, which
-        // puts quickshell in PATH, and Ambxst runs on that same runtime. The
-        // binary would then claim Ambxst is installed while its config
-        // directory does not exist. Requiring the config too keeps a shared
-        // runtime from standing in for a shell that was never set up.
+        // puts quickshell in PATH, so any quickshell-based shell with no overlay
+        // entry would look installed while its config directory does not exist.
+        // Requiring the config too keeps a shared runtime from standing in for a
+        // shell that was never set up.
         None => binary && config,
     }
 }

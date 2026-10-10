@@ -67,7 +67,7 @@ yang berubah menurut compositor:
 |---|---|
 | `id`, `display_name`, `upstream` | `Identity` | — |
 | `package`, `start_argv`, `logo` | `Identity` | — |
-| `install_plan`, `uninstall_plan`, `companion_systemd_user_units`, `generated_paths`, `discard_paths`, `runtime_packages` | `Identity` | — |
+| `install_plan`, `uninstall_plan`, `companion_systemd_user_units`, `companion_paths`, `generated_paths`, `discard_paths`, `runtime_packages` | `Identity` | — |
 | `config_dir`, `state_dir` | — | `Port` |
 | `systemd_user_unit`, `mechanism` | — | `Port` |
 | `skel_extra_paths`, `backup_extra_paths` | — | `Port` |
@@ -197,7 +197,7 @@ Ulangi folder itu untuk setiap compositor lain yang menawarkannya.
 `<compositor>/shells/nama_baru/mod.rs` akan berbeda di `mechanism` atau
 `systemd_user_unit` kalau memang begitu, dan identik kalau memang sama.
 
-Enam field yang sering tertukar:
+Tujuh field yang sering tertukar:
 
 - `skel_extra_paths` — file yang switch **timpa**. Tambah di sini berarti
   menimpa file milik user, jadi harus ada di `backup_extra_paths` atau
@@ -206,6 +206,13 @@ Enam field yang sering tertukar:
 - `backup_extra_paths` — file milik shell ini yang switch hancurkan tanpa
   tercatat di `config_dir`/`state_dir`, dan yang tidak punya tempat lain untuk
   dibaca balik. Launcher Noctalia ada di sini karena DMS menimpanya.
+- `companion_paths` — data yang disimpan di luar `config_dir`, baik oleh program
+  pendamping shell (DMS: `.local/share/dankcal`, `.config/dgop`) maupun oleh
+  shell itu sendiri (Ambxst: `.local/share/ambxst` untuk chat dan clipboard,
+  `.local/share/ambxst-notes`, plus `.config/axctl` milik `axctl`). Tidak ada
+  yang menginstalnya dan skel tidak membawanya, jadi `plan` hanya bisa
+  mengembalikannya dari backup; `every_companion_path_is_backed_up` menahan
+  penambahan jalur di luar apa yang `backup_sources` jelajahi.
 - `generated_paths` — file yang **shell sendiri** tulis ke direktori bersama
   (tema yang dirender ke `gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct`). Bukan
   masukan switch, jadi tidak boleh ada di `skel_extra_paths`, tapi tetap ikut
@@ -241,11 +248,12 @@ Benturan dua aturan ini di dua arah yang berbeda adalah disengaja:
   yang dirinya sendiri. Ini penjaga yang membuat `uninstall_plan` boleh berisi
   lebih dari paket milik shell yang pergi: `switch::uninstall` men-drop setiap
   paket yang ada di daftar ini milik **shell yang sedang dinyalakan**, sebelum
-  package manager melihatnya. Caelestia dan Ambxst berjalan di atas `quickshell`
-  dan keduanya berjalan di atas `quickshell` — Ambxst tanpa paket, Caelestia
-  dengan paket yang tetap dijalankan di atasnya — jadi tanpa guard ini arah
-  DMS → Caelestia/Ambxst akan
-  mencabut runtime shell baru. Sebaliknya, Noctalia kosong di daftar ini —
+  package manager melihatnya. Caelestia, Ambxst dan DMS semuanya berjalan di
+  atas `quickshell` — masing-masing punya paketnya sendiri, tetapi runtime itu
+  tidak mereka bawa — jadi tanpa guard ini arah DMS → Caelestia/Ambxst akan
+  mencabut runtime shell baru. DMS dan Ambxst juga berbagi `matugen`, jadi
+  berpindah antara keduanya tidak mencabutnya. Sebaliknya, Noctalia kosong di
+  daftar ini —
   itulah yang membuat arah DMS → Noctalia justru menghapus `quickshell-git`.
   Salah isi hanya bisa berakibat paket **ditahan**, bukan shell rusak, jadi
   arah yang aman untuk salah adalah mendeklarasikannya.

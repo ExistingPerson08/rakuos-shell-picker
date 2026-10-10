@@ -10,8 +10,8 @@
 //!   2. dms dms-cli dgop danksearch dankcalendar-git matugen
 //!   ```
 //!
-//!   Both from the `rakuos` repository. Caelestia and Ambxst are in no
-//!   repository, so this is the only install path that can currently be exercised.
+//!   Both from the `rakuos` repository, as are Caelestia's and Ambxst's
+//!   packages.
 //!
 //!   `quickshell-git` is named explicitly rather than left to the solver: `dms`
 //!   requires `(quickshell or quickshell-git)` and the same repository also carries
@@ -201,7 +201,9 @@ pub const IDENTITY: Identity = Identity {
         ".local/share/color-schemes/DankMatugenDark.colors",
         ".local/share/color-schemes/DankMatugenLight.colors",
     ],
-    // The runtime DMS is built on, which Caelestia and Ambxst are built on too.
-    runtime_packages: &["quickshell", "quickshell-git"],
+    // The runtime DMS is built on, which Caelestia and Ambxst are built on too,
+    // and the theming tool it shares with Ambxst. Named so a switch to either
+    // keeps them: DMS → Noctalia takes the runtime away, DMS → Ambxst keeps both.
+    runtime_packages: &["quickshell", "quickshell-git", "matugen"],
     logo: Some("danklogo2.svg"),
 };

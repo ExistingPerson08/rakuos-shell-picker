@@ -1,52 +1,132 @@
-//! Ambxst, started as a plain process.
+//! Ambxst, a packaged shell started as a plain process.
 //!
-//! What is the same wherever it runs: no package, so nothing to install and
-//! nothing to uninstall, and a direct process. It is not in any repository, so
-//! the only way it exists on a machine is that somebody put it there — which is
-//! why it declares a package of `None` and no install plan. A switch to it is
-//! only possible when it is already present (its binary *and* its config
-//! directory are on disk), and `switch::prepare` refuses it otherwise rather
-//! than taking a backup for a shell that could not be started.
+//! What is the same wherever it runs:
 //!
-//! It shares the `quickshell` runtime the other QML shells are built on, so a
-//! switch to it must keep that runtime back — see `runtime_packages`.
+//! - **package**: `ambxst`, from the same `rakuos` overlay the other non-base
+//!   shells live in. `rum origin ambxst` reports Overlay and the binary is owned
+//!   by the package, so the earlier reading of it as unpackaged was wrong: it is
+//!   a real package, installable and removable like DMS.
+//!
+//! - **install**: two privileged stages, runtime first:
+//!
+//!   ```text
+//!   1. quickshell-git
+//!   2. ambxst axctl matugen phosphor-icons-fonts
+//!   ```
+//!
+//!   `quickshell-git` is named explicitly because nothing requires it: Ambxst
+//!   starts `qs -p /usr/share/ambxst/shell.qml`, but its own `Requires` names
+//!   only libc, libpam and the rest — no runtime. Left to the solver the shell
+//!   would be installed and unable to draw anything, which is the same reason
+//!   DMS and Caelestia name it. The runtime is a stage of its own so that if it
+//!   fails there is then nothing of Ambxst on the machine at all.
+//!
+//!   `axctl` is the companion daemon (`AxctlService.qml`), `matugen` renders the
+//!   theme from the wallpaper, and `phosphor-icons-fonts` supplies the icon
+//!   glyphs the shell draws. No package requires any of the three; nothing but
+//!   this list would put them on the machine.
+//!
+//! - **uninstall**: one stage over Ambxst's own packages, `quickshell-git` and
+//!   `matugen` included because a switch to a shell that does not run on them
+//!   should not leave them orphaned. Both are shared — DMS runs on the same
+//!   runtime and renders with the same matugen — so `switch::uninstall` drops any
+//!   of them the shell being switched to declares in `runtime_packages`. The
+//!   fonts stay: like Caelestia's, they belong to whatever else may draw with
+//!   them rather than to the shell.
+//!
+//! - **start**: a direct process, `ambxst`. Ambxst arms its own
+//!   `hyprland.start` hook from the `~/.local/share/ambxst/hyprland.lua` it
+//!   regenerates, which this shell's Hyprland skel loads — so the live switch
+//!   starts it here, and the next login starts it from that hook.
+//!
+//! Ambxst keeps data of its own outside `config_dir`, and it is declared as
+//! [`crate::shell::Identity::companion_paths`] so a switch saves it, cleans it
+//! and reads it back: `~/.local/share/ambxst` holds the chat history, the pinned
+//! clipboard databases and the compositor configs Ambxst regenerates, and
+//! `~/.local/share/ambxst-notes` holds its notes. `axctl`'s brightness record,
+//! in `~/.config/axctl`, travels the same way. Nothing installs any of it, so
+//! the backup is the only thing that can hand it back after Ambxst has been
+//! away — which is why none of it can be left to sit through a switch.
 //!
 //! Upstream note, for whoever adds a Niri port: Ambxst generates its Niri config
 //! into `~/.local/share/ambxst/niri.kdl` and pulls it in with an include block,
 //! so there may be no hand-written config directory to point at. It would not be
 //! the Hyprland port with a different path.
 
-use crate::shell::Identity;
+use crate::shell::{Identity, InstallPlan, UninstallPlan};
 
 pub const IDENTITY: Identity = Identity {
     id: "ambxst",
     display_name: "Ambxst",
     upstream: "Axenide/Ambxst",
-    package: None,
+    package: Some("ambxst"),
     binary: "ambxst",
     start_argv: &["ambxst"],
     process_match: &[],
-    install_plan: None,
-    uninstall_plan: None,
+    install_plan: Some(InstallPlan {
+        package: "ambxst",
+        stages: &[
+            // The runtime first and on its own, mirroring DMS and Caelestia: it
+            // is the piece most likely to fail, and nothing in the `ambxst`
+            // package's own requirements would ever pull it in.
+            &["quickshell-git"],
+            &["ambxst", "axctl", "matugen", "phosphor-icons-fonts"],
+        ],
+        program: "pkexec",
+        // `--refresh` for the same reason as DMS: a cached copy of the metadata
+        // is only known to be young, not known to be current. See
+        // `switch::install`.
+        args: &["rum", "install", "-y", "--refresh"],
+    }),
+    uninstall_plan: Some(UninstallPlan {
+        package: "ambxst",
+        // Ambxst's own package, its companion daemon, and the two shared pieces
+        // it installed. `switch::uninstall` drops any of the shared ones the
+        // shell being switched to declares in `runtime_packages`, so a switch to
+        // DMS keeps both and a switch to Noctalia takes them. The fonts are not
+        // here on purpose — see the module note.
+        stages: &[&["ambxst", "axctl", "matugen", "quickshell-git"]],
+        program: "pkexec",
+        args: &["rum", "remove", "-y"],
+    }),
     companion_systemd_user_units: &[],
-    // No companions, so nothing of theirs to save or bring back.
-    companion_paths: &[],
-    // Written by Ambxst itself on every start. Ambxst's own Qt template
-    // (`modules/theme/QtCtGenerator.qml`) renders the `[ColorScheme]` palette
-    // into both of these; the skel ships them so a fresh machine has the colours
-    // before the shell has run once, and `clean` takes them away again once this
-    // switch's backup reproduces them. Both sit in `~/.config/qt5ct` and
-    // `~/.config/qt6ct`, which `switch::SHARED_PATHS` backs up.
+    // Where the companion keeps its own data, and where the shell keeps data
+    // that is not configuration. `axctl` records the brightness it has applied
+    // in `~/.config/axctl/brightness.tsv`; Ambxst keeps the chat history and the
+    // pinned clipboard in `~/.local/share/ambxst`, and its notes in
+    // `~/.local/share/ambxst-notes`. Nothing installs any of these and no skel
+    // carries them, so the backup is the only thing that can hand them back
+    // after Ambxst has been away. Each sits outside `config_dir`, so each has to
+    // be declared or a switch away would take it with no copy anywhere.
+    companion_paths: &[
+        ".config/axctl",
+        ".local/share/ambxst",
+        ".local/share/ambxst-notes",
+    ],
+    // Rendered by Ambxst itself, not installed by the switch. Ambxst's own Qt
+    // template (`modules/theme/QtCtGenerator.qml`) writes the `[ColorScheme]`
+    // palette into both of these on every start, so the skel does not carry
+    // them: shipping a copy the switch never installs would be a seed only in
+    // name. Nothing else on the desktop writes either filename, so they are what
+    // is left over after a switch to another shell, and `clean` takes them away
+    // once this switch's backup reproduces them. Both sit under `~/.config/qt5ct`
+    // and `~/.config/qt6ct`, which `switch::SHARED_PATHS` backs up.
     generated_paths: &[
         ".config/qt5ct/colors/ambxst.colors",
         ".config/qt6ct/colors/ambxst.colors",
     ],
     // Rendered output and cached state, none of it written by the user: colour
     // schemes, wallpapers, usage counters and icon caches Ambxst rebuilds on the
-    // next start. They live under `~/.cache`, which no backup walks —
+    // next start. `~/.cache/quickshell` is the same kind of thing one level out:
+    // the QML and pipeline caches written by the Quickshell runtime Ambxst runs
+    // on, which DMS declares too and neither shell needs after a switch. They
+    // live under `~/.cache`, which no backup walks —
     // `every_discard_path_is_never_preserved` fails the suite if that ever
     // changes.
-    discard_paths: &[".cache/ambxst"],
-    runtime_packages: &["quickshell", "quickshell-git"],
+    discard_paths: &[".cache/ambxst", ".cache/quickshell"],
+    // The runtime and the theming tool Ambxst shares with DMS. Both have to be
+    // named so that a switch between the two keeps them, and a switch to a shell
+    // that needs neither (Noctalia) takes them away.
+    runtime_packages: &["quickshell", "quickshell-git", "matugen"],
     logo: Some("ambxst-logo-color.svg"),
 };

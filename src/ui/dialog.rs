@@ -85,10 +85,10 @@ pub fn decide(
 
     // Not being installed only refuses a shell there is no way to obtain. The
     // test is the install plan rather than the package name, because the plan is
-    // the per-shell declaration that an install is actually possible: DMS and
-    // Caelestia have one, while Ambxst has a package field of None and no
-    // repository entry either. A shell with a plan is worth switching to,
-    // because the backend installs it only after the backup.
+    // the per-shell declaration that an install is actually possible: DMS,
+    // Caelestia and Ambxst all have one, while Noctalia is in the base image and
+    // needs none. A shell with a plan is worth switching to, because the backend
+    // installs it only after the backup.
     let install = !state.installed && shell.install_plan.is_some();
     if !state.installed && !install {
         return Action::NotInstalled {

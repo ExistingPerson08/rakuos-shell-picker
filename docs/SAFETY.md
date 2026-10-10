@@ -147,8 +147,8 @@ Jebakan kedua: `rum info <paket>` keluar dengan status 0 bahkan kalau paketnya
 tidak ada. "Tidak ada" hanya muncul di teks output:
 
 ```
-$ rum info caelestia
-No package named 'caelestia' found.        # exit=0
+$ rum info nonexistent-package
+No package named 'nonexistent-package' found.        # exit=0
 ```
 
 Jadi exit code tidak boleh dipakai sebagai pemeriksaan ketersediaan. Yang dipakai
@@ -168,9 +168,11 @@ memang diminta user, sedangkan rpmdb overlay ikut memuat seluruh dependency
 yang ikut terpasang.
 
 Konsekuensi yang sudah terlihat sekarang: `Noctalia` ada di base image,
-`dms` dan `caelestia` ada di repo `rakuos` (`dms` belum terpasang di mesin ini),
-dan `ambxst` tidak ada di repo mana pun sehingga hanya bisa dipakai kalau sudah
-ada di mesin — ia tidak bisa diinstal, hanya bisa di-switch-ke-kalau-sudah-ada.
+sedangkan `dms`, `caelestia` dan `ambxst` semuanya ada di repo `rakuos` dengan
+paketnya masing-masing (`dms` belum terpasang di mesin ini; `ambxst` sedang
+aktif lewat paket overlay-nya). Ketiganya bisa diinstal dan di-uninstall lewat
+install plan; yang tidak punya install plan hanyalah `Noctalia`, karena ia
+sudah ada di base image dan tidak perlu dipasang.
 
 ## Wajib: backup sebelum switch
 
@@ -183,7 +185,8 @@ Urutan satu-satunya yang boleh dipakai:
                 backup selalu mendahului install
  2. preflight : environment + start mechanism siap (binary, unit systemd, atau
                 file autostart benar-benar ada)
- 3. BACKUP    : delapan path di bawah, disalin ke
+ 3. BACKUP    : delapan path di bawah, ditambah jalur milik shell target yang
+                sudah ada di mesin (lihat `backup_sources_for`), disalin ke
                 backups/<tanggal>-<compositor>-<shell>/ lalu DIBACA ULANG untuk
                 dicocokkan dengan manifest. Namanya tanggal saja, jadi satu hari
                 satu direktori: switch kedua pada hari yang sama menggantikan
@@ -319,25 +322,30 @@ tidak memakai syarat langkah 12: cache dan file render yang **tidak pernah
 diedit siapa pun**. Tidak ada yang perlu disimpan untuk sebuah berkas yang bisa
 diregenerasi shell pembuatnya, jadi `clean` menghapusnya atas dasar deklarasi
 saja, dan backup tidak membawanya — satu switch tidak seharusnya memindahkan
-beberapa megabyte ulangan. Syaratnya bukan "dipercaya", melainkan "mustahil
-berisi data": `every_discard_path_is_never_preserved` menggagalkan suite kalau
-ada irisan dengan jalur mana pun yang `backup_sources` jelajahi, termasuk kasus
-di mana sebuah `discard_paths` jadi induk dari direktori yang di-backup —
-itu akan menghapus tanpa syarat semua isinya, termasuk salinan yang baru saja
-diambil. Guard pemilik tetap berlaku: path yang dimiliki shell tujuan tidak
-disentuh.
+beberapa megabyte ulangan. Ambxst mendeklarasikan dua: `~/.cache/ambxst` dan
+`~/.cache/quickshell`, cache QML runtime Quickshell yang dipakai bersama DMS dan
+tidak dibutuhkan shell berikutnya. Syaratnya bukan "dipercaya", melainkan
+"mustahil berisi data": `every_discard_path_is_never_preserved` menggagalkan
+suite kalau ada irisan dengan jalur mana pun yang `backup_sources` jelajahi,
+termasuk kasus di mana sebuah `discard_paths` jadi induk dari direktori yang
+di-backup — itu akan menghapus tanpa syarat semua isinya, termasuk salinan yang
+baru saja diambil. Guard pemilik tetap berlaku: path yang dimiliki shell tujuan
+tidak disentuh.
 
 Launcher tidak dibersihkan: kedua shell memasangnya dari skel masing-masing,
 jadi shell berikutnya sudah menimpanya sendiri.
 
 Daftar keenam ikut dibersihkan **dan** ikut di-backup, `companion_paths`: data
-yang dimiliki program pendamping shell, bukan shell-nya sendiri. DMS berjalan
-bersama `dankcalendar-git`, yang punya `~/.local/share/dankcal` (basis data
-kalendernya dan keyring) dan `~/.local/state/dankcal`, dan `dgop`, yang punya
-`~/.config/dgop`. Tidak ada yang menginstal jalur-jalur ini: program
-menulisnya sendiri pada pertama kali jalan, jadi skel tidak membawanya — dan
-tanpa daftar ini, meninggalkan DMS berarti membawa kalender pergi bersama
-paketnya tanpa satu salinan pun tertinggal.
+milik program pendamping shell, dan data yang shell itu simpan sendiri di luar
+`config_dir`. DMS berjalan bersama `dankcalendar-git`, yang punya
+`~/.local/share/dankcal` (basis data kalendernya dan keyring) dan
+`~/.local/state/dankcal`, dan `dgop`, yang punya `~/.config/dgop`. Ambxst
+menyimpan riwayat chat dan clipboard yang di-pin di `~/.local/share/ambxst`,
+catatannya di `~/.local/share/ambxst-notes`, dan `axctl` menyimpan catatan
+brightness-nya di `~/.config/axctl`. Tidak ada yang menginstal jalur-jalur ini:
+program menulisnya sendiri pada pertama kali jalan, jadi skel tidak membawanya —
+dan tanpa daftar ini, meninggalkan shell berarti membawa kalender, chat atau
+catatan pergi bersama paketnya tanpa satu salinan pun tertinggal.
 
 Perlakuannya sama dengan `generated_paths`, bukan dengan `discard_paths`:
 di-backup bersama shell itu, dihapus setelah switch hanya kalau backup switch
@@ -350,8 +358,22 @@ Guard pemilik tetap berlaku, termasuk untuk dua shell yang mendeklarasikan
 companion path yang sama.
 
 Dengan begitu daftar DMS untuk switch keluar berjumlah dua belas (delapan di
-tabel plus empat companion); Noctalia, Caelestia dan Ambxst tanpa companion
-tetap delapan.
+tabel plus empat companion); Noctalia dan Caelestia tanpa companion tetap
+delapan, sedangkan Ambxst menambah tiga companion path (`.config/axctl`,
+`.local/share/ambxst`, `.local/share/ambxst-notes`) jadi sebelas.
+
+Yang membuat catatan chat dan kalender itu bisa dibuang dengan tenang adalah
+`backup_sources_for`, bukan `backup_sources`. Yang kedua hanya menyimpan separuh
+shell yang **ditinggalkan**; swap menimpa config dan state shell **tujuan**
+juga — shell yang pernah ada di mesin ini punya config yang akan digantikan
+skel. Tanpa jalur target di backup, config lama itu hanya bertahan sebagai
+`.pre-*` yang tidak direproduksi backup mana pun, dan langkah 12 menyimpannya
+selamanya. Maka backup sebuah switch berisi jalur shell keluar **dan** jalur
+shell masuk: `config_dir`, `state_dir`, `skel_extra_paths`, `backup_extra_paths`,
+`generated_paths` dan `companion_paths` milik target ditambahkan bila belum
+tercakup daftar keluar. Salinannya tercatat atas nama shell keluar, jadi ia
+menjaga byte-nya, bukan menghidupkan kembali config lama target lewat `plan` —
+yang kembali saat berpindah balik adalah era yang ditinggalkan shell itu.
 
 ### Apa yang boleh ditimpa, dan apa yang tidak
 
@@ -402,7 +424,7 @@ syaratnya terpenuhi". Yang tidak punya syarat ada di tabel kedua.
 |---|---|
 | Menulis sebagian dari `~/.config/hypr` | Filenya saling merujuk. Menyisipkan satu file ke direktori milik shell lain meninggalkan config yang setengah milik dua shell, dan gagalnya baru terasa saat Hyprland sudah start. Diganti penuh atau tidak disentuh. |
 | `rm -rf` config tanpa backup yang terbukti tersimpan | Backup yang gagal membatalkan switch. Tidak ada kondisi di mana config hilang dan switch tetap jalan. Ini berlaku sama untuk langkah bersih: ukurannya bukan "backup ada", tapi "backup ini menggambarkan file ini". |
-| Menghapus runtime bersama **yang masih dipakai shell tujuan** | `quickshell-git` dipakai shell lain juga — Ambxst (tanpa paket) dan Caelestia (paketnya sendiri, tetap dijalankan di atasnya) berjalan di atasnya, jadi mencabutnya berarti shell baru tanpa runtime dan tanpa cara mengembalikannya. `switch::uninstall` men-drop setiap paket yang ada di `runtime_packages` milik shell tujuan sebelum package manager melihatnya. Membalik arahnya: DMS → Noctalia **menghapus** quickshell, karena Noctalia biner asli dan tidak membutuhkannya. |
+| Menghapus runtime bersama **yang masih dipakai shell tujuan** | `quickshell-git` dipakai shell lain juga — DMS, Caelestia dan Ambxst sama-sama berjalan di atasnya (masing-masing punya paket sendiri, tetapi runtime-nya tidak mereka bawa), dan `matugen` dipakai bersama DMS dan Ambxst — jadi mencabutnya berarti shell baru tanpa runtime dan tanpa cara mengembalikannya. `switch::uninstall` men-drop setiap paket yang ada di `runtime_packages` milik shell tujuan sebelum package manager melihatnya. Membalik arahnya: DMS → Noctalia **menghapus** quickshell, karena Noctalia biner asli dan tidak membutuhkannya. |
 
 ### Membersihkan shell yang ditinggalkan
 

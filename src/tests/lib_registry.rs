@@ -131,16 +131,17 @@ fn an_install_plan_names_the_same_package_as_the_shell() {
 }
 
 #[test]
-fn only_dms_and_caelestia_can_be_installed_and_they_use_polkit() {
-    // Deliberately a fact about today, not a general rule: when Ambxst gets
-    // packaged this test is what should be updated.
+fn only_packaged_shells_can_be_installed_and_they_use_polkit() {
+    // Noctalia is the only shell left without an install plan: it is in the base
+    // image and never needs installing. The other three are packaged and each
+    // installs through polkit so the password never passes through this process.
     let with_plan: BTreeSet<_> = compositor::all()
         .iter()
         .flat_map(|c| c.shells())
         .filter(|s| s.install_plan.is_some())
         .map(|s| s.id)
         .collect();
-    assert_eq!(with_plan, BTreeSet::from(["caelestia", "dms"]));
+    assert_eq!(with_plan, BTreeSet::from(["ambxst", "caelestia", "dms"]));
 
     let dms = super::shell::find("dms").expect("dms registered");
     let plan = dms.install_plan.expect("dms installs from a repository");
@@ -172,18 +173,33 @@ fn only_dms_and_caelestia_can_be_installed_and_they_use_polkit() {
     // availability check and the install would drift apart.
     assert!(plan.packages().contains(&plan.package));
     assert_eq!(plan.program, "pkexec");
+
+    let ambxst = super::shell::find("ambxst").expect("ambxst registered");
+    let plan = ambxst
+        .install_plan
+        .expect("ambxst installs from a repository");
+    // Its own package, the runtime in a stage of its own, and the three things
+    // nothing requires: the companion daemon, the theming tool and the icon
+    // fonts the shell draws with.
+    assert_eq!(
+        plan.command_line(),
+        "pkexec rum install -y --refresh quickshell-git ambxst axctl matugen \
+         phosphor-icons-fonts"
+    );
+    assert!(plan.packages().contains(&plan.package));
+    assert_eq!(plan.program, "pkexec");
 }
 
 #[test]
 fn a_shell_without_an_install_plan_has_nothing_to_install() {
-    // Noctalia is in the base image; Ambxst is in no repo.
-    for id in ["noctalia", "ambxst"] {
-        let shell = super::shell::find(id).unwrap_or_else(|| panic!("{id} registered"));
-        assert!(
-            shell.install_plan.is_none(),
-            "{id} should have no install plan"
-        );
-    }
+    // Noctalia is the last shell in the base image, so it is the only one that
+    // is neither installed nor removable through a plan. Its files are still
+    // the user's, and cleaning them on the way out is `clean`'s job.
+    let noctalia = super::shell::find("noctalia").expect("noctalia registered");
+    assert!(
+        noctalia.install_plan.is_none(),
+        "noctalia should have no install plan"
+    );
 }
 
 #[test]
@@ -857,39 +873,32 @@ fn a_skel_is_missing_only_where_the_shell_cannot_be_installed() {
 }
 
 #[test]
-fn a_shell_that_cannot_be_installed_is_only_switchable_when_it_is_already_there() {
-    // Ambxst is in no repository, so it has no package and no install plan. It
-    // does have a skel — that is what makes a switch to it possible at all once
-    // it is present — and the thing that keeps that skel from being a promise
-    // the backend cannot keep is the availability refusal in `switch::prepare`:
-    // with nothing to install from, the target must already be running on disk
-    // (binary *and* config directory) or the switch is refused before the backup
-    // is taken.
-    //
-    // Noctalia is the counter-example that keeps the package rule honest: it has
-    // a package and no install plan, which is correct because it is in the base
-    // image and never needs installing. Caelestia gained a package, an install
-    // plan and a skel at the same time, which is the order the rule above
-    // enforces.
+fn ambxst_is_a_first_class_shell() {
+    // Ambxst is packaged in the same overlay as DMS, so it is installable,
+    // removable, and has a skel and a config location like every other shell.
+    // This was not always the case: it used to be declared unpackaged, which is
+    // why it had neither an install plan nor a skel. Pinning the whole set here
+    // keeps a later change from quietly taking one of them away.
     let ambxst = super::shell::find("ambxst").expect("ambxst registered");
+    assert_eq!(ambxst.package, Some("ambxst"));
     assert!(
-        ambxst.package.is_none(),
-        "ambxst is in no repository, so it must not claim a package"
+        ambxst.install_plan.is_some(),
+        "ambxst installs from the rakuos repository"
     );
-    assert!(
-        ambxst.install_plan.is_none(),
-        "ambxst has nothing to install from, so it must not claim a plan"
-    );
+    assert!(ambxst.uninstall_plan.is_some(), "and can be removed again");
     assert!(
         crate::apply::skel_for("hyprland", "ambxst").is_dir(),
-        "ambxst now has a config location, so its skel is what lets a switch \
-         complete; removing it would leave an installable-looking card with \
-         nothing to install"
+        "ambxst ships a skel, or a switch to it could not complete; removing it \
+         would leave an installable card with nothing to install"
     );
     assert!(
         ambxst.config_dir.is_some(),
         "the skel only means something because the config location is known; \
          `switch::prepare` refuses a shell whose config_dir is None"
+    );
+    assert!(
+        ambxst.runtime_packages.contains(&"quickshell-git"),
+        "ambxst runs on quickshell, so it has to say so"
     );
 }
 

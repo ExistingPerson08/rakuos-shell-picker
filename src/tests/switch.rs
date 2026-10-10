@@ -123,14 +123,16 @@ fn a_switch_with_nothing_running_still_saves_the_shared_paths() {
 
 #[test]
 fn switching_away_from_ambxst_backs_up_its_config_and_state() {
-    // Ambxst is unpackaged, so nothing would reinstall it on the way back — the
-    // backup is the only way home. Its config and state are saved like every
-    // other shell's, and the launcher entry it overwrites is kept for the same
-    // reason DMS and Caelestia keep it.
+    // Ambxst is packaged, so a switch back would reinstall it — but its config
+    // and state are still saved like every other shell's, and the launcher entry
+    // it overwrites is kept for the same reason DMS and Caelestia keep it.
     //
-    // `~/.local/share/ambxst` is deliberately absent: it is user data (chats, the
-    // pinned clipboard) that no switch overwrites, so nothing needs to bring it
-    // back — it simply stays.
+    // Everything else is data Ambxst keeps outside `config_dir`, all of it in
+    // `companion_paths`: `axctl`'s brightness record in `.config/axctl`, the chat
+    // history and pinned clipboard in `.local/share/ambxst`, and the notes in
+    // `.local/share/ambxst-notes`. Nothing installs any of it, so the backup is
+    // the only thing that can hand it back — and a switch away that did not save
+    // it would take it with no copy anywhere.
     assert_eq!(
         relative_list(Some(&AMBXST)),
         [
@@ -142,7 +144,43 @@ fn switching_away_from_ambxst_backs_up_its_config_and_state() {
             ".config/ambxst",
             ".local/state/ambxst",
             ".local/share/applications/dev.noctalia.Noctalia.desktop",
+            ".config/axctl",
+            ".local/share/ambxst",
+            ".local/share/ambxst-notes",
         ]
+    );
+}
+
+#[test]
+fn the_shell_being_switched_to_is_saved_too_so_nothing_is_left_aside() {
+    // The swap replaces the target's own config and state as well as the
+    // outgoing shell's. `backup_sources` saves only the outgoing half — DMS's
+    // config is absent while Ambxst runs — so an incoming shell that had been on
+    // the machine before left its displaced config as a `.pre-*` aside that no
+    // backup reproduced, and `discard_asides` kept it on disk forever.
+    // `backup_sources_for` adds the target's paths, so the aside is reproduced
+    // too and dropped like the rest.
+    let outgoing_only = relative_list(Some(&AMBXST));
+    assert!(!outgoing_only.contains(&".config/DankMaterialShell".to_string()));
+
+    let for_dms: Vec<String> =
+        backup_sources_for(&home(), &crate::compositor::HYPRLAND, Some(&AMBXST), &DMS)
+            .iter()
+            .map(|p| {
+                p.strip_prefix(home())
+                    .expect("every backup path is inside home")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+    assert!(for_dms.contains(&".config/DankMaterialShell".to_string()));
+    assert!(for_dms.contains(&".local/state/DankMaterialShell".to_string()));
+    // and the target's companion data, which the swap would otherwise displace
+    assert!(for_dms.contains(&".local/share/dankcal".to_string()));
+    // Shared paths the outgoing half already saved must not be listed twice.
+    assert_eq!(
+        for_dms.iter().filter(|p| *p == ".config/gtk-3.0").count(),
+        1
     );
 }
 

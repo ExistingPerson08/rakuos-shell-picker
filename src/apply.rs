@@ -332,7 +332,15 @@ pub fn apply_with(
                 rolled_back: false,
             };
         }
-        refresh_backup(shell, home, backups_root, backup_root, compositor, progress);
+        refresh_backup(
+            shell,
+            target,
+            home,
+            backups_root,
+            backup_root,
+            compositor,
+            progress,
+        );
     }
 
     let asides = match swap(&entries, &staging, home, target.id, &stamp, progress) {
@@ -1147,7 +1155,11 @@ fn restore(asides: &[Aside], home: &Path) -> bool {
 /// `.pre-*` clutter that nothing would ever read again.
 ///
 /// An aside no backup holds is kept, because after the swap it may be the only
-/// copy left of what was there.
+/// copy left of what was there. [`crate::switch::backup_sources_for`] makes that
+/// the rare case rather than the rule — the target's own config and state are
+/// copied with the outgoing shell's, so an aside taken from the shell being
+/// switched *to* is reproduced too — but a backup that could not be re-taken
+/// leaves an outgoing shell's last write unheld, and that copy is then kept.
 ///
 /// Returns how many were removed and how many were kept.
 fn discard_asides(asides: &[Aside], backups_root: &Path) -> (usize, usize) {
@@ -1215,6 +1227,7 @@ fn discard_asides(asides: &[Aside], backups_root: &Path) -> (usize, usize) {
 /// the worse cases.
 fn refresh_backup(
     outgoing: &'static Shell,
+    target: &'static Shell,
     home: &Path,
     backups_root: &Path,
     backup_root: &Path,
@@ -1224,7 +1237,7 @@ fn refresh_backup(
     let Some(name) = backup_root.file_name().and_then(|n| n.to_str()) else {
         return;
     };
-    let sources = crate::switch::backup_sources(home, compositor, Some(outgoing));
+    let sources = crate::switch::backup_sources_for(home, compositor, Some(outgoing), target);
     match crate::backup::Backup::create(backups_root, name, &sources, home) {
         Ok(fresh) => {
             let line = format!(

@@ -1,7 +1,7 @@
 //! Ambxst on Hyprland.
 //!
 //! Only what is specific to this compositor. Everything about Ambxst itself —
-//! that it is unpackaged, that it is a direct process, and the runtime it shares
+//! that it is packaged, that it is a direct process, and the runtime it shares
 //! with the other quickshell shells — is in [`crate::shells::ambxst`], and is
 //! not repeated here.
 //!
@@ -19,13 +19,15 @@
 //!   regenerates, which this shell's Hyprland skel loads — so the switch starts
 //!   it here, and the next login starts it from that hook.
 //! - **backup**: those two directories, plus the launcher entry and the shared
-//!   Qt `[Appearance]` file a switch overwrites.
-//! - **clean**: the same two directories and the two Qt colour files Ambxst
-//!   renders for itself, each only once this switch's backup reproduces it byte
-//!   for byte. `~/.local/share/ambxst` is deliberately not touched: it is user
-//!   data (chats, the pinned clipboard) that nothing else would save, and it is
-//!   inert once the Hyprland config that loads its generated side stops being
-//!   installed.
+//!   Qt `[Appearance]` file a switch overwrites, plus the data Ambxst keeps
+//!   outside them (`~/.local/share/ambxst`, `~/.local/share/ambxst-notes` and
+//!   `~/.config/axctl`) through [`crate::shell::Identity::companion_paths`].
+//! - **clean**: the same two directories, that data, the `~/.cache` trees with
+//!   nothing in them, and the two Qt colour files Ambxst renders for itself —
+//!   each only once this switch's backup reproduces it byte for byte. The data
+//!   under `~/.local/share` goes as well, because the backup now holds it and a
+//!   switch away that left the chat history behind would be a switch that did
+//!   not finish.
 //! - **verify**: a process named `ambxst` is alive.
 //!
 //! `~/.config/hypr` comes from this shell's skel whole, as for every shell,

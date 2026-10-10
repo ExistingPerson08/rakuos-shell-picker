@@ -17,8 +17,9 @@
 //! Why the split is per shell rather than per step: the steps are not the same for
 //! any two shells. Noctalia is in the base image and started from a Lua autostart,
 //! DMS is installed from a repository and started by a systemd user unit, Caelestia
-//! has no package at all and runs on a runtime it shares with another shell, and
-//! Ambxst records no config location. What they have in common, such as the shared
+//! is installed from a repository and probed by a process pattern, and Ambxst is
+//! installed from the same repository and started as a plain process on a runtime
+//! it shares with the others. What they have in common, such as the shared
 //! config paths a backup always saves, stays in `src/switch.rs` so there is one copy
 //! of it rather than four that can drift.
 

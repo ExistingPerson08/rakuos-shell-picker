@@ -1144,7 +1144,8 @@ fn the_backup_is_taken_again_after_the_shell_stops_so_its_state_can_go() {
         &home.join(".local/state/noctalia/clipboard/index.enc"),
         "before",
     );
-    let sources = crate::switch::backup_sources(&home, &Hyprland, Some(&noctalia::SHELL));
+    let sources =
+        crate::switch::backup_sources_for(&home, &Hyprland, Some(&noctalia::SHELL), &dms::SHELL);
     crate::backup::Backup::create(&backups, name, &sources, &home).unwrap();
     let backup_root = backups.join(name);
 
@@ -1157,6 +1158,7 @@ fn the_backup_is_taken_again_after_the_shell_stops_so_its_state_can_go() {
     let mut said = Vec::new();
     refresh_backup(
         &noctalia::SHELL,
+        &dms::SHELL,
         &home,
         &backups,
         &backup_root,
