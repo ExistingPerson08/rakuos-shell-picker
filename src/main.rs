@@ -16,8 +16,11 @@ fn dry_run(args: &[String]) -> ! {
     // refusal is exactly the one worth finding in the log afterwards.
     let _ = rakuos_shell_picker::logging::init_command();
 
-    let want_comp = args.first().map(String::as_str).unwrap_or("hyprland");
-    let want_shell = args.get(1).map(String::as_str).unwrap_or("dms");
+    let (Some(want_comp), Some(want_shell)) = (args.first(), args.get(1)) else {
+        fail("dry run", "usage: --dry-run <compositor> <shell>");
+    };
+    let want_comp = want_comp.as_str();
+    let want_shell = want_shell.as_str();
 
     let Some(comp) = compositor::all().into_iter().find(|c| c.id() == want_comp) else {
         fail(
@@ -95,8 +98,14 @@ fn switch(args: &[String]) -> ! {
 
     let flags: Vec<&String> = args.iter().filter(|a| a.starts_with("--")).collect();
     let positional: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
-    let want_comp = positional.first().map(|s| s.as_str()).unwrap_or("hyprland");
-    let want_shell = positional.get(1).map(|s| s.as_str()).unwrap_or("dms");
+    let (Some(want_comp), Some(want_shell)) = (positional.first(), positional.get(1)) else {
+        fail(
+            "switch",
+            "usage: --switch <compositor> <shell> [--no-logout]",
+        );
+    };
+    let want_comp = want_comp.as_str();
+    let want_shell = want_shell.as_str();
     let log_out = !flags.iter().any(|f| f.as_str() == "--no-logout");
 
     let Some(comp) = compositor::all().into_iter().find(|c| c.id() == want_comp) else {
@@ -111,6 +120,12 @@ fn switch(args: &[String]) -> ! {
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
         fail("switch", "HOME is not set");
     };
+
+    // The compositor actually running, read the way the window reads it. The
+    // guard in `prepare` compares this against `comp`, so it has to be the real
+    // answer: passing `comp.id()` here would compare Hyprland with itself and
+    // make the guard a tautology that can never refuse.
+    let current = compositor::detect().current;
 
     // Looked for across every compositor, the same way the window does it: a
     // running shell is still recognised when the tab being switched is not its own.
@@ -132,7 +147,7 @@ fn switch(args: &[String]) -> ! {
     rakuos_shell_picker::logging::info(&opening);
     match rakuos_shell_picker::switch::everything(
         comp,
-        Some(comp.id()),
+        current,
         shell,
         running,
         &roots,

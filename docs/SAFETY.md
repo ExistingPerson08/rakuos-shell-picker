@@ -168,8 +168,9 @@ memang diminta user, sedangkan rpmdb overlay ikut memuat seluruh dependency
 yang ikut terpasang.
 
 Konsekuensi yang sudah terlihat sekarang: `Noctalia` ada di base image,
-`dms` ada di repo `rakuos` tapi belum terpasang, dan `caelestia` maupun `ambxst`
-tidak ada di repo mana pun sehingga belum mungkin terpasang sama sekali.
+`dms` dan `caelestia` ada di repo `rakuos` (`dms` belum terpasang di mesin ini),
+dan `ambxst` tidak ada di repo mana pun sehingga hanya bisa dipakai kalau sudah
+ada di mesin — ia tidak bisa diinstal, hanya bisa di-switch-ke-kalau-sudah-ada.
 
 ## Wajib: backup sebelum switch
 
@@ -497,7 +498,7 @@ src/compositor/hyprland/shells/
 Skel ada di dalam folder shell-nya, bukan di folder `skel/` terpisah, supaya
 satu shell di satu compositor utuh di satu tempat: `mod.rs` menyatakan ke mana
 file-nya ditulis dan mana yang perlu diselamatkan, `skel/` berisi file aslinya.
-Tidak perlu mencari dua tempat untuk_EQ satu shell.
+Tidak perlu mencari dua tempat untuk satu shell.
 
 Tidak semua shell punya default config untuk disalin. Noctalia tidak mengirim
 satu pun, dia membuat `~/.config/noctalia/config.toml` sendiri saat pertama

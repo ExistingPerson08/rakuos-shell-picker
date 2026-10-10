@@ -39,7 +39,9 @@ src/compositor/             satu folder per compositor
         mod.rs
         skel/
       caelestia/mod.rs + skel    skel/.config/hypr milik upstream Caelestia
-      ambxst/mod.rs         belum ada skel — config-nya belum diketahui
+      ambxst/
+        mod.rs              PORT: config `.config/ambxst`, state `.local/state/ambxst`
+        skel/               config Hyprland, gtk, qt5ct/qt6ct, launcher
   niri/
     mod.rs                  kosong — dicadangkan, catatannya di sana
   fake.rs                   compositor kedua untuk test, hanya di build test

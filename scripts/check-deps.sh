@@ -74,7 +74,9 @@ for pkg in rust cargo rustfmt clippy gtk4-devel libadwaita-devel; do
     gtk4-devel)         file=/usr/lib64/pkgconfig/gtk4.pc         ;;
     libadwaita-devel)  file=/usr/lib64/pkgconfig/libadwaita-1.pc ;;
   esac
-  rpm -q "$pkg" >/dev/null 2>&1 || [ -n "$file" ] && [ -f "$file" ] && orphan+=("$pkg")
+  if ! rpm -q "$pkg" >/dev/null 2>&1 && [ -f "$file" ]; then
+    orphan+=("$pkg")
+  fi
 done
 
 if [ ${#orphan[@]} -eq 0 ]; then
@@ -106,18 +108,22 @@ fi
 echo
 echo "== build & test =="
 if have cargo; then
-  if cargo build --quiet 2>/tmp/cb.err; then
+  work=$(mktemp -d "${TMPDIR:-/tmp}/rakuos-shell-picker-check.XXXXXX") || work=""
+  build_err="$work/build.err"
+  test_out="$work/test.out"
+
+  if cargo build --quiet 2>"$build_err"; then
     ok "cargo build"
   else
     bad "cargo build gagal:"
-    sed 's/^/         /' /tmp/cb.err | head -15
+    sed 's/^/         /' "$build_err" | head -15
   fi
 
-  if cargo test --quiet >/tmp/ct.out 2>&1; then
-    ok "cargo test — $(grep -oE '[0-9]+ passed' /tmp/ct.out | head -1)"
+  if cargo test --quiet >"$test_out" 2>&1; then
+    ok "cargo test — $(grep -oE '[0-9]+ passed' "$test_out" | head -1)"
   else
     bad "cargo test gagal:"
-    sed 's/^/         /' /tmp/ct.out | grep -E 'error|FAILED|panicked' | head -10
+    sed 's/^/         /' "$test_out" | grep -E 'error|FAILED|panicked' | head -10
   fi
 
   n=$(cargo clippy --all-targets 2>&1 | grep -cE '^(error|warning:)')
@@ -126,7 +132,7 @@ if have cargo; then
   else
     warn "cargo clippy: $n temuan"
   fi
-  rm -f /tmp/cb.err /tmp/ct.out
+  [ -n "$work" ] && rm -rf "$work"
 fi
 
 echo

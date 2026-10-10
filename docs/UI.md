@@ -166,15 +166,21 @@ compositor. Niri pernah jadi kolom kedua dan sudah dihapus.
 | Noctalia | ya | di base image |
 | DankMaterialShell | ya | diinstal dari repository (dua stage) |
 | Caelestia Shell | ya | diinstal dari repository (runtime + paket + font) |
-| Ambxst | ya | ditolak: tidak ada repository |
+| Ambxst | ya | tanpa paket — hanya bisa di-switch kalau sudah terpasang |
 
-Ambxst satu-satunya yang **tidak punya `skel/`** dan itu disengaja: ia tidak
-ada di repository mana pun, jadi dialog menolaknya di `Not installed` —
-sebelum backup diambil, bukan sesudahnya. Kalau skel-less diizinkan hanya
-pada shell yang memang tidak bisa diinstal, itu yang diuji
+Ambxst tidak ada di repository mana pun, jadi dialog menolaknya di
+`Not installed` sampai ia benar-benar ada di mesin — sebelum backup diambil,
+bukan sesudahnya. Ia **punya `skel/`** sendiri sekarang (lokasi config-nya sudah
+diketahui: `.config/ambxst`), jadi begitu terpasang, switch ke sana bisa
+diselesaikan. Yang menahan bukan skel yang kosong melainkan aturan "shell yang
+tidak bisa diinstal harus sudah ada", dan itu diuji
+`a_shell_that_cannot_be_installed_is_only_switchable_when_it_is_already_there`.
+
+Aturan yang lebih umum: **skel boleh absen hanya di tempat shell tidak bisa
+diinstal** — diuji
 `a_skel_is_missing_only_where_the_shell_cannot_be_installed`. Niri melanggar
-aturan itu karena punya shell yang bisa diinstal, dan itu sebabnya ia dihapus
-bukan dibiarkan dengan skel kosong.
+aturan itu karena punya shell yang bisa diinstal tanpa skel, dan itu sebabnya ia
+dihapus bukan dibiarkan dengan skel kosong.
 
 ## Panel log
 

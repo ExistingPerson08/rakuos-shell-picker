@@ -1,6 +1,7 @@
 use super::*;
 use crate::compositor::hyprland::shells::{
-    caelestia::SHELL as CAELESTIA, dms::SHELL as DMS, noctalia::SHELL as NOCTALIA,
+    ambxst::SHELL as AMBXST, caelestia::SHELL as CAELESTIA, dms::SHELL as DMS,
+    noctalia::SHELL as NOCTALIA,
 };
 
 fn home() -> PathBuf {
@@ -121,11 +122,28 @@ fn a_switch_with_nothing_running_still_saves_the_shared_paths() {
 }
 
 #[test]
-fn a_shell_with_no_recorded_directories_adds_nothing() {
-    // Ambxst records neither, so switching away from it cannot promise to
-    // bring anything back. Its preflight refuses it for the same reason.
-    let ambxst = crate::shell::find("ambxst").expect("ambxst registered");
-    assert_eq!(relative_list(Some(ambxst)), relative_list(None));
+fn switching_away_from_ambxst_backs_up_its_config_and_state() {
+    // Ambxst is unpackaged, so nothing would reinstall it on the way back — the
+    // backup is the only way home. Its config and state are saved like every
+    // other shell's, and the launcher entry it overwrites is kept for the same
+    // reason DMS and Caelestia keep it.
+    //
+    // `~/.local/share/ambxst` is deliberately absent: it is user data (chats, the
+    // pinned clipboard) that no switch overwrites, so nothing needs to bring it
+    // back — it simply stays.
+    assert_eq!(
+        relative_list(Some(&AMBXST)),
+        [
+            ".config/gtk-3.0",
+            ".config/gtk-4.0",
+            ".config/qt5ct",
+            ".config/qt6ct",
+            ".config/hypr",
+            ".config/ambxst",
+            ".local/state/ambxst",
+            ".local/share/applications/dev.noctalia.Noctalia.desktop",
+        ]
+    );
 }
 
 #[test]

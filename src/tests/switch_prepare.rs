@@ -1,6 +1,43 @@
 use super::*;
-use crate::compositor::hyprland::shells::{
-    ambxst::SHELL as AMBXST, dms::SHELL as DMS, noctalia::SHELL as NOCTALIA,
+use crate::compositor::hyprland::shells::{dms::SHELL as DMS, noctalia::SHELL as NOCTALIA};
+use crate::shell::StartMechanism;
+
+/// A shell that is on no machine: no package, no install plan, a binary nobody
+/// has, and a config directory nobody created.
+///
+/// Used instead of a real registry shell so the refusal tests say the same thing
+/// wherever they run. Ambxst used to stand here, and once it gained a skel the
+/// test passed only on machines where Ambxst happened not to be installed — the
+/// opposite of what a test is for.
+static GHOST: Shell = Shell {
+    id: "ghost",
+    display_name: "Ghost Shell",
+    upstream: "test",
+    package: None,
+    binary: "rakuos-shell-picker-no-such-binary",
+    start_argv: &["rakuos-shell-picker-no-such-binary"],
+    process_match: &[],
+    config_dir: Some(".config/rakuos-shell-picker-no-such-shell"),
+    state_dir: None,
+    install_plan: None,
+    uninstall_plan: None,
+    companion_systemd_user_units: &[],
+    companion_paths: &[],
+    skel_extra_paths: &[],
+    generated_paths: &[],
+    discard_paths: &[],
+    runtime_packages: &[],
+    backup_extra_paths: &[],
+    systemd_user_unit: None,
+    mechanism: StartMechanism::DirectProcess,
+    logo: None,
+};
+
+/// As [`GHOST`], but with nothing recorded for where its config lives: the shape
+/// `docs/SAFETY.md` rule 4 refuses before the backup is taken.
+static NO_CONFIG: Shell = Shell {
+    config_dir: None,
+    ..GHOST
 };
 
 /// Which shell is alive right now, if any.
@@ -136,14 +173,34 @@ fn a_shell_with_nothing_to_install_from_is_refused() {
     let err = prepare(
         &crate::compositor::HYPRLAND,
         Some("hyprland"),
-        &AMBXST,
+        &GHOST,
         None,
         false,
         &home,
         &root.join("backups"),
     )
-    .expect_err("ambxst has no package and no binary");
+    .expect_err("a shell with no package, no plan and no binary has nothing to switch to");
     assert!(matches!(err, Refusal::Unavailable { .. }), "{err:?}");
+    assert!(!root.join("backups").exists());
+}
+
+#[test]
+fn a_shell_that_does_not_say_where_its_config_lives_is_refused() {
+    // The backend half of SAFETY.md rule 4. Without a config location there is
+    // nothing to back up and nothing to seed, so the switch must stop here —
+    // before the backup directory exists, not after.
+    let (root, home) = scratch("no-config");
+    let err = prepare(
+        &crate::compositor::HYPRLAND,
+        Some("hyprland"),
+        &NO_CONFIG,
+        None,
+        false,
+        &home,
+        &root.join("backups"),
+    )
+    .expect_err("a shell with no config_dir must be refused");
+    assert!(matches!(err, Refusal::NoConfig { .. }), "{err:?}");
     assert!(!root.join("backups").exists());
 }
 

@@ -824,10 +824,10 @@ fn a_compositor_with_no_skel_yet_refuses_every_shell_on_it() {
 
 #[test]
 fn a_skel_is_missing_only_where_the_shell_cannot_be_installed() {
-    // Hyprland's Caelestia and Ambxst have no skel, and that is deliberate:
-    // neither is in any repository, so the dialog refuses them as not
-    // installed before a skel is ever consulted. Their cards explain
-    // themselves rather than failing halfway through a switch.
+    // Today every registered shell has a skel, so this test has no subject and
+    // only guards the next shell that arrives without one. It stays because the
+    // rule it records is what would have caught Niri — see below — and Ambxst's
+    // skel was added exactly to move it into the covered set.
     //
     // Niri had three ports and no skel at all, and that was not deliberate.
     // Two of its shells were installable, so the dialog offered them, and the
@@ -857,18 +857,20 @@ fn a_skel_is_missing_only_where_the_shell_cannot_be_installed() {
 }
 
 #[test]
-fn the_shell_without_a_skel_is_the_one_that_cannot_be_installed() {
-    // Records the deliberate state rather than leaving it implied, because
-    // "no skel" and "no package" are the same fact here and one of them
-    // changing should be noticed.
+fn a_shell_that_cannot_be_installed_is_only_switchable_when_it_is_already_there() {
+    // Ambxst is in no repository, so it has no package and no install plan. It
+    // does have a skel — that is what makes a switch to it possible at all once
+    // it is present — and the thing that keeps that skel from being a promise
+    // the backend cannot keep is the availability refusal in `switch::prepare`:
+    // with nothing to install from, the target must already be running on disk
+    // (binary *and* config directory) or the switch is refused before the backup
+    // is taken.
     //
-    // Noctalia is the counter-example that keeps this honest: it has a
-    // package and no install plan, and that is correct, because it is in the
-    // base image and never needs installing. It also has a skel, which is why
-    // the rule above leaves it alone.
-    //
-    // Caelestia is the other: it gained a package, an install plan and a skel
-    // at the same time, which is the order the rule above enforces.
+    // Noctalia is the counter-example that keeps the package rule honest: it has
+    // a package and no install plan, which is correct because it is in the base
+    // image and never needs installing. Caelestia gained a package, an install
+    // plan and a skel at the same time, which is the order the rule above
+    // enforces.
     let ambxst = super::shell::find("ambxst").expect("ambxst registered");
     assert!(
         ambxst.package.is_none(),
@@ -879,9 +881,15 @@ fn the_shell_without_a_skel_is_the_one_that_cannot_be_installed() {
         "ambxst has nothing to install from, so it must not claim a plan"
     );
     assert!(
-        !crate::apply::skel_for("hyprland", "ambxst").is_dir(),
-        "ambxst cannot be installed and so is refused before the backup; a \
-         skel for it would imply a switch that can be completed"
+        crate::apply::skel_for("hyprland", "ambxst").is_dir(),
+        "ambxst now has a config location, so its skel is what lets a switch \
+         complete; removing it would leave an installable-looking card with \
+         nothing to install"
+    );
+    assert!(
+        ambxst.config_dir.is_some(),
+        "the skel only means something because the config location is known; \
+         `switch::prepare` refuses a shell whose config_dir is None"
     );
 }
 

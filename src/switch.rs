@@ -117,6 +117,11 @@ pub enum Refusal {
     },
     /// The shell asked for is the one already on screen.
     AlreadyRunning { shell: String },
+    /// The shell does not say where its configuration lives.
+    ///
+    /// Without that, there is nothing to back up and nothing to seed, so a
+    /// switch could neither be undone nor completed. See `docs/SAFETY.md`, rule 4.
+    NoConfig { shell: String },
     /// Nothing to switch to and nothing to install from.
     Unavailable { shell: String },
     /// The backup could not be taken or could not be read back.
@@ -134,6 +139,10 @@ impl Refusal {
                 "the running compositor could not be identified".to_string()
             }
             Refusal::AlreadyRunning { shell } => format!("{shell} is already running"),
+            Refusal::NoConfig { shell } => format!(
+                "{shell} does not say where its configuration lives, so a switch could \
+                 not be backed up or undone"
+            ),
             Refusal::Unavailable { shell } => {
                 format!("{shell} is not installed and has no package to install it from")
             }
@@ -198,10 +207,28 @@ pub fn prepare(
         });
     }
 
-    // Step 2: preflight. A shell with no package and nothing on disk has no way
-    // to exist; refusing here means the backup is never taken for a target that
+    // Step 1, continued: the target has to say where its configuration lives.
+    // Without that there is nothing to back up and nothing to seed, so a switch
+    // could neither be undone nor completed — SAFETY.md rule 4. Enforced here as
+    // well as in the registry tests because the backend is the layer that has to
+    // hold, whatever the window decided.
+    if target.config_dir.is_none() {
+        return Err(Refusal::NoConfig {
+            shell: target.display_name.to_string(),
+        });
+    }
+
+    // Step 2: preflight, and it is the same test the dialog makes before it
+    // offers the card (`ui::dialog::decide`) on purpose: the backend must refuse
+    // at least what the window refuses, so a click and a `--switch` cannot
+    // disagree. A shell is worth switching to either because it is already on
+    // this machine or because there is a plan to install it after the backup.
+    //
+    // `installed()` for an unpackaged shell needs the binary *and* the config
+    // directory, so a shared `quickshell` in `PATH` cannot pass Ambxst off as
+    // set up. Refusing here means the backup is never taken for a target that
     // could not be started anyway.
-    if target.package.is_none() && !target.binary_present() {
+    if !target.installed() && target.install_plan.is_none() {
         return Err(Refusal::Unavailable {
             shell: target.display_name.to_string(),
         });

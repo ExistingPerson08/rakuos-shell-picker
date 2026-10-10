@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════
--- Key Bindings — Hyprland Noctalia
+-- Key Bindings — Hyprland Ambxst
 -- ═══════════════════════════════════════════
 
 local M = "SUPER"

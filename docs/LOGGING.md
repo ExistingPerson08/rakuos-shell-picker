@@ -92,6 +92,10 @@ log aplikasi.
 
 ## 3. Log gagal
 
+> **Status: belum diimplementasikan.** Saluran yang berjalan sekarang baru 1 dan
+> 2. Bagian ini adalah spesifikasi tujuannya, dan tiap barisnya tercatat sebagai
+> G3–G8 di [FEATURES.md](FEATURES.md).
+
 ```
 ~/.local/state/rakuos-shell-picker/logs/<shell-id>/<timestamp>.log   mode 0600
 ```
@@ -134,7 +138,7 @@ log tetap murni teks.
 - Isi file konfigurasi
 - Nilai token, password, API key
 - Seluruh isi environment
-- Lokasi home lengkap tanpa necessidade
+- Lokasi home lengkap tanpa keperluan
 
 Yang boleh: nama path, nama executable, exit code, pesan error dari perkakas,
 timestamp, id operasi.
@@ -143,8 +147,8 @@ timestamp, id operasi.
 
 | Jenis | Kirim log gagal? | Alasan |
 |---|---|---|
-| Guard ditolak (compositor beda) | tidak | bukan kegagalan, memangdicegah sejak awal |
-| Shell target belum terpasang | tidak | saja ditolak user, bukan error sistem |
+| Guard ditolak (compositor beda) | tidak | bukan kegagalan, memang dicegah sejak awal |
+| Shell target belum terpasang | tidak | hanya ditolak user, bukan error sistem |
 | Backup gagal | **ya** | data berisiko, user harus tahu |
 | Stop gagal | **ya** | bisa menyisakan sesi setengah |
 | Start gagal | **ya** | ini yang paling sering terjadi |

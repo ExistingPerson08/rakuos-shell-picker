@@ -10,7 +10,7 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | A1 | Binary `rakuos-shell-picker`, app ID `org.rakuos.ShellPicker` | selesai |
 | A2 | Satu crate (`lib` + `bin`) dengan modul per compositor | selesai |
 | A3 | Struktur modular, `ui/` terisolasi dari backend | selesai |
-| A4 | 27 unit test (registry, logo, urutan, state, guard, dialog) | selesai |
+| A4 | 200 unit test (registry, logo, urutan, state, guard, dialog, logging) | selesai |
 | A5 | Clippy bersih, `cargo test` hijau | selesai |
 
 ## B. Tampilan
@@ -58,7 +58,7 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | D2 | `record_switch`, lookup `active_shell` | selesai |
 | D3 | Backups dir disiapkan | selesai |
 | D4 | Tampilkan shell aktif dari state di UI | belum |
-| D5 | Tulis state secara atomik (temp file + rename) | belum |
+| D5 | Tulis state secara atomik (temp file + rename) | selesai — `State::save_to`, tulis ke `state.toml.tmp` lalu `rename` |
 | D6 | Simpan compositor aktif, bukan cuma shell | belum |
 
 ## E. Backend
@@ -75,7 +75,7 @@ Inti dari proyek. `switch::prepare` (langkah 1–3) dan `apply::apply_with`
 | E4 | Backend Noctalia | selesai (registry, `StartMechanism::Autostart`) |
 | E5 | Backend DMS | selesai (registry, `StartMechanism::SystemdUserUnit`) |
 | E6 | Backend Caelestia | selesai — paket + install/uninstall plan + skel + probe proses `qs -c caelestia` |
-| E7 | Backend Ambxst | selesai sebagai registrasi; switch ke sana ditolak (`config_dir` belum diketahui) |
+| E7 | Backend Ambxst | selesai — tanpa paket dan tanpa install plan; punya `config_dir`/`state_dir` + skel (`generated_paths` untuk warna Qt), jadi switch ke sana jalan kalau sudah terpasang dan ditolak `Unavailable` kalau tidak |
 | E8 | Stop shell lama dengan rapi (bukan `kill -9`) | selesai — SIGTERM, tunggu, batas waktu, `kill -KILL` hanya upaya terakhir |
 | E9 | Start shell baru dengan mekanisme yang benar | selesai — `StartMechanism`, dibaca lagi oleh `verify` |
 | E10 | Deteksi shell yang jalan tanpa lewat daftar kita | selesai — `process_running` lewat `/proc` |
@@ -91,8 +91,8 @@ Spesifikasi lengkap di [LOGGING.md](LOGGING.md).
 
 | # | Fitur | Status |
 |---|---|---|
-| G1 | Log aplikasi ke `XDG_RUNTIME_DIR`, 0600, dipotong tiap start | belum |
-| G2 | Fallback `/tmp/rakuos-shell-picker-$UID/` mode 0700 | belum |
+| G1 | Log aplikasi ke `XDG_RUNTIME_DIR`, 0600, dipotong tiap start | selesai — `logging::init`, `picker.log` mode 0600, `truncate` saat window start |
+| G2 | Fallback `/tmp/rakuos-shell-picker-$UID/` mode 0700 | selesai — `logging::default_dir`, dir dibuat mode 0700 |
 | G3 | Log gagal per waktu di `state/logs/<shell>/<timestamp>.log`, 0600 | belum |
 | G4 | Tidak ada log file saat switch sukses | belum |
 | G5 | Rotasi 10 kegagalan terakhir per shell | belum |
