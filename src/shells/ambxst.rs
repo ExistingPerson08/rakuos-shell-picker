@@ -70,7 +70,13 @@ pub const IDENTITY: Identity = Identity {
             // is the piece most likely to fail, and nothing in the `ambxst`
             // package's own requirements would ever pull it in.
             &["quickshell-git"],
-            &["ambxst", "axctl", "matugen", "phosphor-icons-fonts"],
+            &[
+                "ambxst",
+                "axctl",
+                "matugen",
+                "phosphor-icons-fonts",
+                "hyprpolkitagent",
+            ],
         ],
         program: "pkexec",
         // `--refresh` for the same reason as DMS: a cached copy of the metadata
@@ -85,7 +91,13 @@ pub const IDENTITY: Identity = Identity {
         // shell being switched to declares in `runtime_packages`, so a switch to
         // DMS keeps both and a switch to Noctalia takes them. The fonts are not
         // here on purpose — see the module note.
-        stages: &[&["ambxst", "axctl", "matugen", "quickshell-git"]],
+        stages: &[&[
+            "ambxst",
+            "axctl",
+            "matugen",
+            "quickshell-git",
+            "hyprpolkitagent",
+        ]],
         program: "pkexec",
         args: &["rum", "remove", "-y"],
     }),

@@ -4,8 +4,7 @@ local fn   = require("utils.functions")
 hl.on("hyprland.start", function()
     -- Keyring and auth
     hl.exec_cmd("gnome-keyring-daemon --start --components=secrets")
-    hl.exec_cmd("/usr/libexec/lxqt-policykit-agent")
-
+    hl.exec_cmd("/usr/libexec/hyprpolkitagent")
     -- Clipboard history
     hl.exec_cmd("wl-paste --type text --watch cliphist store")
     hl.exec_cmd("wl-paste --type image --watch cliphist store")

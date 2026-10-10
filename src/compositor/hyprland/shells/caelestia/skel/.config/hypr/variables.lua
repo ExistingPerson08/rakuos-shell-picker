@@ -6,10 +6,10 @@ return {
     ------------------
 
     -- Apps
-    terminal                   = "foot",
+    terminal                   = "ghostty",
     browser                    = "firefox",
-    editor                     = "codium",
-    fileExplorer               = "thunar",
+    editor                     = "zeditor",
+    fileExplorer               = "nautilus",
     audioSettings              = "pwvucontrol",
 
     -- Touchpad

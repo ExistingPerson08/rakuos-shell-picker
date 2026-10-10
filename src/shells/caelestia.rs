@@ -86,7 +86,7 @@ pub const IDENTITY: Identity = Identity {
                 "google-rubik-fonts",
                 "cascadia-code-nf-fonts",
                 "material-symbols-fonts",
-                "lxqt-policykit",
+                "hyprpolkitagent",
             ],
         ],
         program: "pkexec",
@@ -103,7 +103,7 @@ pub const IDENTITY: Identity = Identity {
         // once `caelestia-shell` is in the same transaction, so leaving it out
         // only ever produced an orphan that `rum autoremove` was left to find.
         // The fonts are left for whatever else may use them.
-        stages: &[&["caelestia-shell", "quickshell-git", "lxqt-policykit"]],
+        stages: &[&["caelestia-shell", "quickshell-git", "hyprpolkitagent"]],
         program: "pkexec",
         args: &["rum", "remove", "-y"],
     }),
