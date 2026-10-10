@@ -92,6 +92,16 @@ pub trait Compositor: Sync {
     /// reason to abandon a switch that has already succeeded.
     fn reload(&self) -> Result<(), String>;
 
+    /// Ask the compositor to quit, ending the session it runs in.
+    ///
+    /// The way out that works from a program the session does not own. A desktop
+    /// app launched as a systemd user service lives outside the session's own
+    /// scope, so `loginctl terminate-session` sees its own session as a
+    /// cross-session request and refuses it. The compositor's own quit command
+    /// has no such problem — it talks to the running compositor over its socket —
+    /// and the session ends when the compositor exits. See `apply::logout`.
+    fn exit(&self) -> Result<(), String>;
+
     fn is_running(&self) -> bool {
         self.is_running_with(&SystemEnv)
     }

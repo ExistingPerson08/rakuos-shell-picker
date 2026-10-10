@@ -64,5 +64,8 @@ pub const IDENTITY: Identity = Identity {
     // of the desktop does not already have, so a switch to it keeps nothing back
     // — which is exactly why leaving DMS takes quickshell with it.
     runtime_packages: &[],
+    // Noctalia answers polkit itself (`polkit_agent = true`), so it needs no
+    // external agent. See `Identity::polkit_agent`.
+    polkit_agent: &[],
     logo: Some("noctalia.svg"),
 };

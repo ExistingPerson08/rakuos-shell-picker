@@ -455,12 +455,17 @@ pub fn apply_with(
         }
 
         if let Some(plan) = outgoing.uninstall_plan {
-            // Two things have to happen before a password can be asked for.
+            // Everything that has to happen before a password can be asked for.
             // The compositor is still running the configuration this switch
             // replaced, so it is reloaded first and the new shell's rules are
-            // the ones in effect. Then the new shell gets time to register its
-            // polkit agent — without it, `pkexec` is answered by nobody and
-            // falls back to a textual prompt a window cannot show.
+            // the ones in effect. Then the new shell must have a polkit agent:
+            // shells that answer polkit themselves (DMS, Noctalia) register one
+            // a beat after start, and the ones that lean on `hyprpolkitagent`
+            // (Caelestia, Ambxst) never started it, because a reload does not
+            // run their `exec-once` line. So start that agent if the shell names
+            // one, then give whatever is up time to register — without an agent,
+            // `pkexec` is answered by nobody and falls back to a textual prompt a
+            // window cannot show.
             match compositor.reload() {
                 Ok(()) => progress(&format!("reloaded {}'s configuration", compositor.label())),
                 Err(detail) => progress(&format!(
@@ -468,6 +473,7 @@ pub fn apply_with(
                     compositor.label()
                 )),
             }
+            ensure_polkit_agent(target, progress);
             progress(&format!(
                 "waiting {} seconds for {} to be ready to answer polkit",
                 AGENT_GRACE.as_secs(),
@@ -519,7 +525,7 @@ pub fn apply_with(
         return Apply::Switched { logged_out: false };
     }
 
-    match logout(progress) {
+    match logout(compositor, progress) {
         Ok(()) => Apply::Switched { logged_out: true },
         Err(detail) => {
             // The switch itself worked. Only the clean restart did not, which is
@@ -1542,6 +1548,45 @@ fn start(shell: &Shell, progress: &mut dyn FnMut(&str)) -> Result<(), (&'static 
     Ok(())
 }
 
+/// Start the incoming shell's polkit agent, if it needs one and none is running.
+///
+/// A shell whose config runs an external agent gets it for free on a normal
+/// login, but a live switch reloads the config instead of starting a session and
+/// `exec-once` does not run again — so by the time the privileged uninstall
+/// stage asks for a password, nobody is there to answer it. Starting the agent
+/// named by the shell here closes that gap. A shell that answers polkit from its
+/// own process names none and is left alone; one whose agent is already up (a
+/// switch between two shells that share it) is left alone too.
+fn ensure_polkit_agent(shell: &Shell, progress: &mut dyn FnMut(&str)) {
+    let Some((program, args)) = shell.polkit_agent.split_first() else {
+        return;
+    };
+    let name = std::path::Path::new(program)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(program);
+    if !pids_of(name, &[]).is_empty() {
+        return;
+    }
+    progress(&format!(
+        "starting {} to answer the password prompt",
+        shell.polkit_agent.join(" ")
+    ));
+    match Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(_) => {}
+        Err(error) => progress(&format!(
+            "could not start {}: {error}",
+            shell.polkit_agent.join(" ")
+        )),
+    }
+}
+
 /// Check the new shell is really up, not merely launched.
 fn verify(
     shell: &Shell,
@@ -1666,17 +1711,46 @@ fn resume(shell: Option<&'static Shell>, progress: &mut dyn FnMut(&str)) -> bool
 /// Deliberately last. Everything before this point has been checked, so the only
 /// thing logout adds is that the next session begins clean instead of inheriting
 /// a compositor that was configured for the other shell.
-fn logout(progress: &mut dyn FnMut(&str)) -> Result<(), String> {
+///
+/// Three ways out, tried in order, because the obvious one does not work from
+/// where this runs. A desktop app launched as a systemd user service lives in
+/// `user@UID.service/app.slice`, not in the graphical session's own scope, so
+/// logind treats `terminate-session` on that session as a foreign request and
+/// refuses it (needs `org.freedesktop.login1.manage`). So:
+///
+/// 1. the compositor's own quit, which talks to it over its socket and has no
+///    scope question at all;
+/// 2. `uwsm stop`, when UWSM owns the session and can stop it cleanly;
+/// 3. `loginctl terminate-session`, which is right when this process *is* part
+///    of the session (a run from a terminal inside it).
+fn logout(
+    compositor: &'static dyn Compositor,
+    progress: &mut dyn FnMut(&str),
+) -> Result<(), String> {
     progress("ending the session; log back in to start the new shell");
 
-    // `loginctl terminate-session` is the way, and it turns out to be the only
-    // one: systemd 261 has no `logout` verb, and `systemctl --user logout`
-    // answers "Unknown command verb 'logout', did you mean 'reboot'?". That
-    // attempt used to be made first on the theory that it was a newer verb some
-    // systems would have; on this one it has never once succeeded, so all it
-    // bought was a line in the log reporting a failure nobody could act on.
-    // A picker that leaves the user staring at the new shell on the old session
-    // has not finished its job, so this is where the session ends.
+    match compositor.exit() {
+        Ok(()) => {
+            progress(&format!("asked {} to quit", compositor.label()));
+            return Ok(());
+        }
+        Err(detail) => progress(&format!("could not quit the compositor: {detail}")),
+    }
+
+    // UWSM, when it manages the session, stops it as a unit rather than as a
+    // logind session, so it is not subject to the scope rule above. Absent, the
+    // call fails with "not found" and the next fallback runs.
+    if let Ok(out) = run("uwsm", &["stop"]) {
+        if out.status.success() {
+            progress("uwsm stopped the session");
+            return Ok(());
+        }
+        progress(&format!(
+            "uwsm stop did not work: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+
     let session = std::env::var("XDG_SESSION_ID").ok().or_else(|| {
         run("loginctl", &["show-session", "self", "-p", "Id", "--value"])
             .ok()

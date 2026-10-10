@@ -27,6 +27,7 @@ static GHOST: Shell = Shell {
     generated_paths: &[],
     discard_paths: &[],
     runtime_packages: &[],
+    polkit_agent: &[],
     backup_extra_paths: &[],
     systemd_user_unit: None,
     mechanism: StartMechanism::DirectProcess,

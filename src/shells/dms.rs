@@ -205,5 +205,8 @@ pub const IDENTITY: Identity = Identity {
     // and the theming tool it shares with Ambxst. Named so a switch to either
     // keeps them: DMS → Noctalia takes the runtime away, DMS → Ambxst keeps both.
     runtime_packages: &["quickshell", "quickshell-git", "matugen"],
+    // DMS answers polkit from its own PolkitService, so it needs no external
+    // agent. See `Identity::polkit_agent`.
+    polkit_agent: &[],
     logo: Some("danklogo2.svg"),
 };

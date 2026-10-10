@@ -50,6 +50,12 @@ impl Compositor for Fake {
     fn reload(&self) -> Result<(), String> {
         Ok(())
     }
+
+    // Nothing to quit either, for the same reason. A test that reaches logout
+    // gets a clean answer rather than a compositor call it never set up.
+    fn exit(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub static FAKE: Fake = Fake;

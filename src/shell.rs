@@ -281,6 +281,22 @@ pub struct Identity {
     /// shell: what a shell runs on does not change from compositor to
     /// compositor.
     pub runtime_packages: &'static [&'static str],
+    /// The polkit authentication agent this shell starts, as an argv to run, or
+    /// empty when the shell answers polkit itself.
+    ///
+    /// DMS brings up its own agent and Noctalia sets `polkit_agent = true`, so
+    /// both answer `pkexec` from the shell process. Caelestia and Ambxst do not:
+    /// their Hyprland config runs `/usr/libexec/hyprpolkitagent` from an
+    /// `exec-once`/autostart line, which a live switch never reaches — a switch
+    /// reloads the config, and `exec-once` does not run again on reload. So a
+    /// switch that stops such a shell and starts one of these finds nobody to
+    /// answer `pkexec` when it tries to remove the old shell's packages, and the
+    /// stage comes back dismissed. Running the agent here, before that stage, is
+    /// what lets the removal happen.
+    ///
+    /// On [`Identity`] rather than [`Port`] because it is a fact about the
+    /// shell: the agent it starts does not change from compositor to compositor.
+    pub polkit_agent: &'static [&'static str],
     /// File name inside the project `assets/` directory.
     pub logo: Option<&'static str>,
 }
@@ -398,6 +414,10 @@ pub struct Shell {
     /// belongs where the removal runs: `apply` reads both shells through
     /// `Shell`, and it has the incoming one in hand at that moment.
     pub runtime_packages: &'static [&'static str],
+    /// See [`Identity::polkit_agent`]. Kept on `Shell` for the same reason as
+    /// [`Self::runtime_packages`]: the uninstall stage reads the incoming shell
+    /// through `Shell` and starts its agent itself before asking for a password.
+    pub polkit_agent: &'static [&'static str],
     /// See [`Port::backup_extra_paths`]. Kept here as well because a backup is
     /// taken from the live system and read back through `Shell`, so the paths a
     /// switch could destroy have to travel with the shell they belong to.
@@ -465,6 +485,7 @@ impl Shell {
             generated_paths: identity.generated_paths,
             discard_paths: identity.discard_paths,
             runtime_packages: identity.runtime_packages,
+            polkit_agent: identity.polkit_agent,
             logo: identity.logo,
 
             config_dir: port.config_dir,

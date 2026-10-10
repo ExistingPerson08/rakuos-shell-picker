@@ -62,6 +62,23 @@ impl Compositor for Hyprland {
             format!("hyprctl reload: {detail}")
         })
     }
+
+    fn exit(&self) -> Result<(), String> {
+        let out = std::process::Command::new("hyprctl")
+            .args(["dispatch", "exit"])
+            .output()
+            .map_err(|e| format!("cannot run hyprctl dispatch exit: {e}"))?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let detail = String::from_utf8_lossy(&out.stderr);
+        let detail = detail.trim();
+        Err(if detail.is_empty() {
+            format!("hyprctl dispatch exit exited with {}", out.status)
+        } else {
+            format!("hyprctl dispatch exit: {detail}")
+        })
+    }
 }
 
 impl Hyprland {

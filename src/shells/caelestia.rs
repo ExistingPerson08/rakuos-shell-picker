@@ -143,5 +143,8 @@ pub const IDENTITY: Identity = Identity {
     // Caelestia or Ambxst keeps them; leaving for a shell that needs neither
     // takes them away.
     runtime_packages: &["quickshell", "quickshell-git", "hyprpolkitagent"],
+    // Caelestia's config starts this from `execs.lua`; a live switch has to start
+    // it itself. See `Identity::polkit_agent`.
+    polkit_agent: &["/usr/libexec/hyprpolkitagent"],
     logo: Some("caelestia.svg"),
 };
