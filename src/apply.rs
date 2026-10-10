@@ -113,20 +113,50 @@ pub struct Context {
     pub skel: PathBuf,
 }
 
-/// Where a shell's skel lives in this repository.
+/// Where a shell's skel lives.
 ///
-/// `src/compositor/<compositor>/shells/<shell>/skel`: the templates sit inside the
-/// shell's own folder, so everything about one shell on one compositor is in one
-/// place — the `PORT` that says where its files go, and the files themselves. The
-/// path is derived rather than registered, so a skel cannot end up somewhere other
-/// than where the shell's code expects it.
+/// In the source tree it is `src/compositor/<compositor>/shells/<shell>/skel`:
+/// the templates sit inside the shell's own folder, so everything about one
+/// shell on one compositor is in one place — the `PORT` that says where its
+/// files go, and the files themselves. A package installs the same tree under
+/// `<prefix>/share/rakuos-shell-picker/<compositor>/shells/<shell>/skel`. The
+/// path is derived rather than registered, so a skel cannot end up somewhere
+/// other than where the shell's code expects it.
 pub fn skel_for(compositor_id: &str, shell_id: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/compositor")
+    skel_root()
         .join(compositor_id)
         .join("shells")
         .join(shell_id)
         .join("skel")
+}
+
+/// The directory that holds `<compositor>/shells/<shell>/skel`, resolved.
+///
+/// `env!("CARGO_MANIFEST_DIR")` is a build-time constant: it points at the tree
+/// the binary was compiled in, which does not exist on the machine the package
+/// was installed on. So the installed location — derived from the running
+/// binary's own path, `<prefix>/share/rakuos-shell-picker` — is tried first, and
+/// the build tree is only the fallback for dev and for tests. An explicit
+/// override wins over both.
+fn skel_root() -> PathBuf {
+    if let Some(dir) = std::env::var_os("RAKUOS_SHELL_PICKER_SKEL_DIR") {
+        return PathBuf::from(dir);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(candidate) = exe
+            .parent()
+            .map(|bin| bin.join("..").join("share").join("rakuos-shell-picker"))
+        {
+            // Installed from a package: /usr/bin/rakuos-shell-picker resolves
+            // to /usr/share/rakuos-shell-picker. Plain `cargo run` lands in
+            // target/debug, where the sibling does not exist, so it falls
+            // through to the source tree.
+            if candidate.is_dir() {
+                return candidate;
+            }
+        }
+    }
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("src/compositor")
 }
 
 /// Work out what a switch would do, and say it, without doing any of it.
