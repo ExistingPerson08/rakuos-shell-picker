@@ -1,13 +1,16 @@
-//! Shell logos, loaded straight from `assets/` as SVG.
+//! Shell logos, embedded from `assets/` as SVG.
 //!
 //! GTK 4.22 renders SVG through GdkTexture, so there is no raster step and no
 //! PNG fallback to maintain. The file name comes from `Shell::logo`, which is
 //! declared next to the shell itself.
-
-use std::path::PathBuf;
+//!
+//! The SVGs are compiled into the binary with `include_bytes!` rather than read
+//! from `assets/` at runtime. `env!("CARGO_MANIFEST_DIR")` points at the build
+//! tree, so a packaged binary could never find them there; embedding keeps the
+//! logos working wherever the binary is installed, with no data files to ship.
 
 use gtk4::gdk;
-use gtk4::gio;
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Image, Label, Orientation};
 
@@ -48,11 +51,25 @@ pub fn build(shell: &Shell) -> gtk4::Widget {
     widget
 }
 
+/// The logo files, compiled in. `Shell::logo` names one of these; a name that
+/// is not here (or a shell with no logo) has no texture and gets the letter.
+fn logo_bytes(name: &str) -> Option<&'static [u8]> {
+    Some(match name {
+        "ambxst-logo-color.svg" => include_bytes!("../../assets/ambxst-logo-color.svg").as_slice(),
+        "caelestia.svg" => include_bytes!("../../assets/caelestia.svg").as_slice(),
+        "danklogo2.svg" => include_bytes!("../../assets/danklogo2.svg").as_slice(),
+        "noctalia.svg" => include_bytes!("../../assets/noctalia.svg").as_slice(),
+        _ => return None,
+    })
+}
+
 fn load(shell: &Shell) -> Option<gdk::Texture> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("assets")
-        .join(shell.logo?);
-    match gdk::Texture::from_file(&gio::File::for_path(path)) {
+    let name = shell.logo?;
+    let Some(bytes) = logo_bytes(name) else {
+        crate::logging::warn(&format!("{}: unknown logo {name}", shell.id));
+        return None;
+    };
+    match gdk::Texture::from_bytes(&glib::Bytes::from_static(bytes)) {
         Ok(texture) => Some(texture),
         Err(err) => {
             crate::logging::warn(&format!("{}: cannot load logo: {err}", shell.id));
