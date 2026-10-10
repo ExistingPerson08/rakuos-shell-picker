@@ -76,7 +76,7 @@ impl Selection {
         log: TextView,
         panel: Revealer,
         detection: Detection,
-        window: &Rc<ApplicationWindow>,
+        window: &ApplicationWindow,
     ) -> Self {
         Self {
             log,
@@ -127,6 +127,11 @@ impl Selection {
     /// One step of a running operation. Both channels, and the panel is shown.
     pub fn progress(&self, line: &str) {
         log::step(&self.log, &self.panel, line);
+    }
+
+    /// The operation finished: the final line is recorded, the panel hides.
+    pub fn succeeded(&self, line: &str) {
+        log::succeeded(&self.panel, line);
     }
 
     /// Something failed: the panel stays until the user closes it.
@@ -355,7 +360,8 @@ fn drain(shared: &Shared, rx: &Receiver<Line>) -> gtk4::glib::ControlFlow {
     let selection = shared.borrow();
     for line in lines {
         match line {
-            Line::Step(text) | Line::Done(text) => selection.progress(&text),
+            Line::Step(text) => selection.progress(&text),
+            Line::Done(text) => selection.succeeded(&text),
             Line::Failed(text) => selection.failed(&text),
         }
     }
@@ -374,7 +380,7 @@ pub struct Picker {
 }
 
 impl Picker {
-    pub fn new(window: &Rc<ApplicationWindow>) -> Self {
+    pub fn new(window: &ApplicationWindow) -> Self {
         let log = log::build();
         let panel = log::panel(&log);
         let detection = compositor::detect();

@@ -96,17 +96,23 @@ fn switch(args: &[String]) -> ! {
     // session, which may well be mid-switch.
     let _ = rakuos_shell_picker::logging::init_command();
 
-    let flags: Vec<&String> = args.iter().filter(|a| a.starts_with("--")).collect();
-    let positional: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
-    let (Some(want_comp), Some(want_shell)) = (positional.first(), positional.get(1)) else {
+    let flags: Vec<&str> = args
+        .iter()
+        .filter(|a| a.starts_with("--"))
+        .map(String::as_str)
+        .collect();
+    let positional: Vec<&str> = args
+        .iter()
+        .filter(|a| !a.starts_with("--"))
+        .map(String::as_str)
+        .collect();
+    let (Some(&want_comp), Some(&want_shell)) = (positional.first(), positional.get(1)) else {
         fail(
             "switch",
             "usage: --switch <compositor> <shell> [--no-logout]",
         );
     };
-    let want_comp = want_comp.as_str();
-    let want_shell = want_shell.as_str();
-    let log_out = !flags.iter().any(|f| f.as_str() == "--no-logout");
+    let log_out = !flags.contains(&"--no-logout");
 
     let Some(comp) = compositor::all().into_iter().find(|c| c.id() == want_comp) else {
         fail("switch", &format!("no compositor called {want_comp}"));

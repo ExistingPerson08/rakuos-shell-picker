@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Shell Picker
+Name[id]=Pemilih Shell
+Comment=Switch the desktop shell running on Hyprland
+Comment[id]=Ganti shell desktop yang berjalan di atas Hyprland
+Exec=rakuos-shell-picker
+Icon=org.rakuos.ShellPicker
+Terminal=false
+Categories=Settings;DesktopSettings;Utility;
+Keywords=shell;desktop;hyprland;picker;rakuos;
+StartupNotify=true
+StartupWMClass=org.rakuos.ShellPicker

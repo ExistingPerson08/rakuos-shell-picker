@@ -88,9 +88,10 @@ pub fn step(log: &TextView, revealer: &Revealer, line: &str) {
     revealer.set_reveal_child(true);
 }
 
-/// The operation finished. The panel goes away again, because there is nothing
-/// left to report.
-pub fn succeeded(revealer: &Revealer) {
+/// The operation finished. The final line goes to the application log and the
+/// panel goes away again, because there is nothing left to report.
+pub fn succeeded(revealer: &Revealer, line: &str) {
+    logging::info(line);
     revealer.set_reveal_child(false);
 }
 

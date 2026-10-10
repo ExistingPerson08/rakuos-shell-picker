@@ -82,7 +82,7 @@ fn leaving_caelestia_takes_the_runtime_unless_the_next_shell_runs_on_it() {
 
     assert_eq!(
         plan.packages(),
-        vec!["caelestia-shell", "quickshell-git", "lxqt-policykit"],
+        vec!["caelestia-shell", "quickshell-git", "hyprpolkitagent"],
         "every package the install put there has to be removable"
     );
 

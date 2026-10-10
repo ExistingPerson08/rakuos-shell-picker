@@ -11,7 +11,7 @@
 //!
 //!   ```text
 //!   1. quickshell-git
-//!   2. ambxst axctl matugen phosphor-icons-fonts
+//!   2. ambxst axctl matugen phosphor-icons-fonts hyprpolkitagent
 //!   ```
 //!
 //!   `quickshell-git` is named explicitly because nothing requires it: Ambxst
@@ -26,10 +26,11 @@
 //!   glyphs the shell draws. No package requires any of the three; nothing but
 //!   this list would put them on the machine.
 //!
-//! - **uninstall**: one stage over Ambxst's own packages, `quickshell-git` and
-//!   `matugen` included because a switch to a shell that does not run on them
-//!   should not leave them orphaned. Both are shared — DMS runs on the same
-//!   runtime and renders with the same matugen — so `switch::uninstall` drops any
+//! - **uninstall**: one stage over Ambxst's own packages, `quickshell-git`,
+//!   `matugen` and `hyprpolkitagent` included because a switch to a shell that
+//!   does not use them should not leave them orphaned. All three are shared —
+//!   DMS runs on the same runtime and renders with the same matugen, and
+//!   Caelestia starts the same polkit agent — so `switch::uninstall` drops any
 //!   of them the shell being switched to declares in `runtime_packages`. The
 //!   fonts stay: like Caelestia's, they belong to whatever else may draw with
 //!   them rather than to the shell.
@@ -106,10 +107,11 @@ pub const IDENTITY: Identity = Identity {
     // that is not configuration. `axctl` records the brightness it has applied
     // in `~/.config/axctl/brightness.tsv`; Ambxst keeps the chat history and the
     // pinned clipboard in `~/.local/share/ambxst`, and its notes in
-    // `~/.local/share/ambxst-notes`. Nothing installs any of these and no skel
-    // carries them, so the backup is the only thing that can hand them back
-    // after Ambxst has been away. Each sits outside `config_dir`, so each has to
-    // be declared or a switch away would take it with no copy anywhere.
+    // `~/.local/share/ambxst-notes`. Nothing installs this data and no skel
+    // carries it, so the backup is the only thing that can hand it back after
+    // Ambxst has been away — the skel seeds only the compositor config Ambxst
+    // regenerates there. Each sits outside `config_dir`, so each has to be
+    // declared or a switch away would take it with no copy anywhere.
     companion_paths: &[
         ".config/axctl",
         ".local/share/ambxst",
@@ -136,9 +138,10 @@ pub const IDENTITY: Identity = Identity {
     // `every_discard_path_is_never_preserved` fails the suite if that ever
     // changes.
     discard_paths: &[".cache/ambxst", ".cache/quickshell"],
-    // The runtime and the theming tool Ambxst shares with DMS. Both have to be
-    // named so that a switch between the two keeps them, and a switch to a shell
-    // that needs neither (Noctalia) takes them away.
+    // The runtime and theming tool Ambxst shares with DMS, and the polkit agent
+    // it shares with Caelestia. All have to be named so a switch between the
+    // shells that use them keeps them, while a switch to a shell that needs none
+    // (Noctalia) takes them away.
     runtime_packages: &["quickshell", "quickshell-git", "matugen", "hyprpolkitagent"],
     logo: Some("ambxst-logo-color.svg"),
 };

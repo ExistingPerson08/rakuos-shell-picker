@@ -7,7 +7,7 @@
 //!
 //!   ```text
 //!   1. quickshell-git
-//!   2. caelestia-shell google-rubik-fonts cascadia-code-nf-fonts material-symbols-fonts lxqt-policykit
+//!   2. caelestia-shell google-rubik-fonts cascadia-code-nf-fonts material-symbols-fonts hyprpolkitagent
 //!   ```
 //!
 //!   `quickshell-git` is the runtime, named first for the reason DMS names it
@@ -41,13 +41,11 @@
 //!   taking them away from something else that borrowed them is not this shell's
 //!   call.
 //!
-//!   After the fonts, `lxqt-policykit` is the other package that leaves with the
-//!   shell: Caelestia's config starts the lxqt polkit agent from
-//!   `hypr/hyprland/execs.lua` (its original choice, the GNOME agent, is not
-//!   packaged for RakuOS), and no other shell starts one of its own — Noctalia
-//!   and DMS have their own arrangements. The agent is the package-level
-//!   dependency that makes that `exec_cmd` able to run, so it is installed with
-//!   the shell and removed when a switch leaves it behind.
+//!   After the fonts, `hyprpolkitagent` is the other package that leaves with
+//!   the shell: Caelestia's config starts the Hyprland polkit agent from
+//!   `hypr/hyprland/execs.lua`, and it is packaged for RakuOS. The agent is the
+//!   package-level dependency that makes that `exec_cmd` able to run, so it is
+//!   installed with the shell and removed when a switch leaves it behind.
 //!
 //! - **start**: the compositor's start event. Caelestia's own Hyprland config
 //!   runs `caelestia shell -d` from `hypr/hyprland/execs.lua`, and the live
@@ -140,8 +138,10 @@ pub const IDENTITY: Identity = Identity {
         ".local/share/PandoraLauncher/themes/caelestia.json",
         ".local/share/warp-terminal/themes/caelestia.yaml",
     ],
-    // The runtime it is built on, which DMS installs and Ambxst reloads. Listed
-    // so a switch away from DMS keeps it while Caelestia is the target.
+    // The runtime it is built on, shared with DMS and Ambxst, and the polkit
+    // agent its own config starts, shared with Ambxst. Listed so a switch to
+    // Caelestia or Ambxst keeps them; leaving for a shell that needs neither
+    // takes them away.
     runtime_packages: &["quickshell", "quickshell-git", "hyprpolkitagent"],
     logo: Some("caelestia.svg"),
 };

@@ -209,10 +209,14 @@ Tujuh field yang sering tertukar:
 - `companion_paths` — data yang disimpan di luar `config_dir`, baik oleh program
   pendamping shell (DMS: `.local/share/dankcal`, `.config/dgop`) maupun oleh
   shell itu sendiri (Ambxst: `.local/share/ambxst` untuk chat dan clipboard,
-  `.local/share/ambxst-notes`, plus `.config/axctl` milik `axctl`). Tidak ada
-  yang menginstalnya dan skel tidak membawanya, jadi `plan` hanya bisa
-  mengembalikannya dari backup; `every_companion_path_is_backed_up` menahan
-  penambahan jalur di luar apa yang `backup_sources` jelajahi.
+  `.local/share/ambxst-notes`, plus `.config/axctl` milik `axctl`). Datanya
+  hanya ada di backup, tetapi skel boleh ikut menyeed config yang programnya
+  regenerasi: Ambxst membawa `.local/share/ambxst/hyprland.lua` dan kawan-kawan
+  supaya login pertama sudah punya file yang dimuat config compositor. `plan`
+  membaca balik dari backup dengan skel sebagai fallback;
+  `every_companion_path_is_backed_up` menahan penambahan jalur di luar apa yang
+  `backup_sources` jelajahi, dan `every_file_in_a_skel_reaches_the_machine`
+  menahan file skel yang tidak tercakup.
 - `generated_paths` — file yang **shell sendiri** tulis ke direktori bersama
   (tema yang dirender ke `gtk-3.0`, `gtk-4.0`, `qt5ct`, `qt6ct`). Bukan
   masukan switch, jadi tidak boleh ada di `skel_extra_paths`, tapi tetap ikut

@@ -167,7 +167,7 @@ fn only_packaged_shells_can_be_installed_and_they_use_polkit() {
     assert_eq!(
         plan.command_line(),
         "pkexec rum install -y --refresh quickshell-git caelestia-shell \
-         google-rubik-fonts cascadia-code-nf-fonts material-symbols-fonts lxqt-policykit"
+         google-rubik-fonts cascadia-code-nf-fonts material-symbols-fonts hyprpolkitagent"
     );
     // The shell's own package must be among the packages it installs, or the
     // availability check and the install would drift apart.
@@ -178,13 +178,13 @@ fn only_packaged_shells_can_be_installed_and_they_use_polkit() {
     let plan = ambxst
         .install_plan
         .expect("ambxst installs from a repository");
-    // Its own package, the runtime in a stage of its own, and the three things
-    // nothing requires: the companion daemon, the theming tool and the icon
-    // fonts the shell draws with.
+    // Its own package, the runtime in a stage of its own, and the four things
+    // nothing requires: the companion daemon, the theming tool, the icon fonts
+    // the shell draws with and the polkit agent its config starts.
     assert_eq!(
         plan.command_line(),
         "pkexec rum install -y --refresh quickshell-git ambxst axctl matugen \
-         phosphor-icons-fonts"
+         phosphor-icons-fonts hyprpolkitagent"
     );
     assert!(plan.packages().contains(&plan.package));
     assert_eq!(plan.program, "pkexec");
@@ -408,16 +408,20 @@ fn every_file_in_a_skel_reaches_the_machine() {
     // The mirror of the test above, and the one that catches a file added to a
     // skel without a declaration to go with it.
     //
-    // `apply::plan` writes exactly four things: the compositor's config_dir, the
-    // target's config_dir, its state_dir, and `skel_extra_paths`. A fifth file
-    // dropped into a skel is shipped and never installed — it passes the test
-    // above precisely because nothing declares it, and a switch then leaves the
-    // previous shell's copy of that path in place. Two files were in exactly
-    // that position before this test existed, each with a comment in the skel
-    // explaining why the switch has to replace it.
+    // `apply::plan` writes exactly five things: the compositor's config_dir, the
+    // target's config_dir, its state_dir, `skel_extra_paths` and
+    // `companion_paths`. A sixth file dropped into a skel is shipped and never
+    // installed — it passes the test above precisely because nothing declares
+    // it, and a switch then leaves the previous shell's copy of that path in
+    // place. Two files were in exactly that position before this test existed,
+    // each with a comment in the skel explaining why the switch has to replace
+    // it.
     //
     // `generated_paths` counts as coverage: a skel may seed a file the shell
     // refreshes itself, which is what Noctalia's rendered themes are.
+    // `companion_paths` counts for the same reason Ambxst's generated compositor
+    // configs are seeded: the switch installs them from the skel when the shell
+    // has never run here, and reads them back from the backup when it has.
     fn collect(dir: &std::path::Path, base: &std::path::Path, out: &mut Vec<String>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
@@ -456,12 +460,13 @@ fn every_file_in_a_skel_reaches_the_machine() {
                 .flatten()
                 .chain(shell.skel_extra_paths.iter().copied())
                 .chain(shell.generated_paths.iter().copied())
+                .chain(shell.companion_paths.iter().copied())
                 .any(|prefix| rel == prefix || rel.starts_with(&format!("{prefix}/")));
                 assert!(
                     owned,
                     "{}/{} ships {rel} but nothing makes a switch write it: plan only \
-                     writes config_dir, state_dir and skel_extra_paths, and this file \
-                     is under none of them",
+                     writes config_dir, state_dir, skel_extra_paths and companion_paths, \
+                     and this file is under none of them",
                     compositor.id(),
                     shell.id
                 );

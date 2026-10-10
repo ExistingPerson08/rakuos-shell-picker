@@ -10,7 +10,7 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | A1 | Binary `rakuos-shell-picker`, app ID `org.rakuos.ShellPicker` | selesai |
 | A2 | Satu crate (`lib` + `bin`) dengan modul per compositor | selesai |
 | A3 | Struktur modular, `ui/` terisolasi dari backend | selesai |
-| A4 | 200 unit test (registry, logo, urutan, state, guard, dialog, logging) | selesai |
+| A4 | 201 unit test (registry, logo, urutan, state, guard, dialog, logging) | selesai |
 | A5 | Clippy bersih, `cargo test` hijau | selesai |
 
 ## B. Tampilan
@@ -32,7 +32,7 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | B17 | Halaman compositor yang tidak sedang jalan menampilkan banner + penolakan saat diklik | selesai (logikanya ada; tidak ada tab kedua untuk saat ini) |
 | B9 | Placeholder "Coming soon" untuk compositor tanpa shell | selesai |
 | B10 | Kartu `unavailable` untuk shell yang belum terpasang | selesai |
-| B11 | Dialog konfirmasi Yes/No sebelum apply | selesai (UI; eksekusi menyusul) |
+| B11 | Dialog konfirmasi Yes/No sebelum apply | selesai |
 | B12 | Tombol Refresh / Install | belum |
 | B18 | Kanal log terpisah: file aplikasi + panel UI (bukan satu panel untuk semua) | selesai |
 
@@ -41,7 +41,7 @@ Status: **selesai** = jalan & teruji · **sebagian** = UI ada, fungsional belum 
 | # | Fitur | Status |
 |---|---|---|
 | C1 | Binary ada di `PATH` | selesai |
-| C2 | Paket terpasang (`rpm -q`) | selesai |
+| C2 | Paket terpasang (`rum paths` + `rpm --dbpath` overlay, bukan `rpm -q`) | selesai |
 | C3 | Proses sedang jalan (scan `/proc/*/comm`) | selesai |
 | C4 | Status `running` / `switch` / `not installed` di kartu | selesai |
 | C5 | Health probe per shell (socket/API) | belum |

@@ -53,7 +53,7 @@ Semua nilai ini di-pin di Rust, bukan di CSS.
 | `ROW_SPACING` | 46 | `ui/grid.rs` | jarak baris |
 | `CARD_WIDTH` | 150 | `ui/card.rs` | kunci lebar kolom |
 | `CARD_WIDE` | 320 | `ui/grid.rs` | kartu placeholder |
-| `LOG_HEIGHT` | 100 | `ui/log.rs` | ¼ dari tinggi window |
+| `LOG_HEIGHT` | 100 | `ui/log.rs` | tinggi tetap panel, seperdelapan window 800px |
 | `LOGO_BOX` | 100 | `ui/logo.rs` | kotak logo |
 | `LOGO_SIZE` | 72 | `ui/logo.rs` | panjang sisi artwork |
 
@@ -118,10 +118,10 @@ memindah shell yang sedang berjalan, bukan memasang paket:
 
 | Keadaan | Judul | Body | Baris penekanan |
 |---|---|---|---|
-| Compositor berbeda | `Blocked` | `niri is not the running compositor.` | **niri is running.** Switch image in "RakuOS system management". |
+| Compositor berbeda | `Blocked` | `sway is not the running compositor.` | **hyprland is running.** Switch image in "RakuOS system management". |
 | Compositor tidak terdeteksi | `Blocked` | alasannya | Nothing was changed. |
 | Shell sudah hidup | `Already running` | `Noctalia is already running.` | Nothing to switch to. |
-| Shell belum terpasang | `Not installed` | `Caelestia Shell is not installed.` | The backend offers to install it after the backup. |
+| Shell belum terpasang | `Not installed` | `Caelestia Shell is not installed.` | Packages come from the **RakuOS** image. |
 | Shell terpasang dan idle | `Switch to X?` | `Noctalia is running now.` | Configuration is backed up and never deleted. |
 
 - **Pendek, bukan paragraf.** Awalnya tiap popup dua paragraf; yang penting
@@ -164,9 +164,9 @@ compositor. Niri pernah jadi kolom kedua dan sudah dihapus.
 | Shell | hyprland | catatan |
 |---|---|---|
 | Noctalia | ya | di base image |
-| DankMaterialShell | ya | diinstal dari repository (dua stage) |
-| Caelestia Shell | ya | diinstal dari repository (runtime + paket + font) |
-| Ambxst | ya | diinstal dari repository (runtime + paket + companion + font) |
+| DankMaterialShell (DMS) | ya | diinstal dari repository (multi-stage) |
+| Caelestia Shell | ya | diinstal dari repository (quickshell + paket) |
+| Ambxst | ya | diinstal dari repository (quickshell + paket + companion) |
 
 Ambxst ada di repository `rakuos`, jadi ia punya paket, install plan, uninstall
 plan, dan `skel/` sendiri (lokasi config-nya `.config/ambxst`). Karena punya

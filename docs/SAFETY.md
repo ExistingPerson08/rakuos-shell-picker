@@ -342,10 +342,12 @@ milik program pendamping shell, dan data yang shell itu simpan sendiri di luar
 `~/.local/state/dankcal`, dan `dgop`, yang punya `~/.config/dgop`. Ambxst
 menyimpan riwayat chat dan clipboard yang di-pin di `~/.local/share/ambxst`,
 catatannya di `~/.local/share/ambxst-notes`, dan `axctl` menyimpan catatan
-brightness-nya di `~/.config/axctl`. Tidak ada yang menginstal jalur-jalur ini:
-program menulisnya sendiri pada pertama kali jalan, jadi skel tidak membawanya —
-dan tanpa daftar ini, meninggalkan shell berarti membawa kalender, chat atau
-catatan pergi bersama paketnya tanpa satu salinan pun tertinggal.
+brightness-nya di `~/.config/axctl`. Tidak ada yang menginstal data ini: program
+menulisnya sendiri pada pertama kali jalan, jadi backup-lah yang mengembalikannya
+— kecuali config compositor yang Ambxst regenerasi di `.local/share/ambxst`, yang
+ikut dised skel supaya login pertama sudah bisa memuatnya. Tanpa daftar ini,
+meninggalkan shell berarti membawa kalender, chat atau catatan pergi bersama
+paketnya tanpa satu salinan pun tertinggal.
 
 Perlakuannya sama dengan `generated_paths`, bukan dengan `discard_paths`:
 di-backup bersama shell itu, dihapus setelah switch hanya kalau backup switch

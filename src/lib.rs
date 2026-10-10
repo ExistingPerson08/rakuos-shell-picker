@@ -6,7 +6,7 @@
 //! ```text
 //! src/main.rs      entry point only
 //! src/app.rs       GTK/libadwaita application and window
-//! src/ui/          widgets, one file per part; knows no shell or compositor
+//! src/ui/          widgets, one file per part; renders the registry, defines none
 //!   mod.rs         the "index": builds the page, owns selection state
 //!   tabbar.rs  grid.rs  card.rs  logo.rs  log.rs
 //! src/shells/      one file per shell: what that shell IS, on any compositor

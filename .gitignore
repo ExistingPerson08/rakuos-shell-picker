@@ -1,6 +1,9 @@
 # Target build
 /target
 
+# Cargo settings local ke mesin (linker clang/lld), bukan bagian dari source
+/.cargo/
+
 # Editor
 *.swp
 .idea/
