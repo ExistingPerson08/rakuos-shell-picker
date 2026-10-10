@@ -139,6 +139,6 @@ pub const IDENTITY: Identity = Identity {
     // The runtime and the theming tool Ambxst shares with DMS. Both have to be
     // named so that a switch between the two keeps them, and a switch to a shell
     // that needs neither (Noctalia) takes them away.
-    runtime_packages: &["quickshell", "quickshell-git", "matugen"],
+    runtime_packages: &["quickshell", "quickshell-git", "matugen", "hyprpolkitagent"],
     logo: Some("ambxst-logo-color.svg"),
 };

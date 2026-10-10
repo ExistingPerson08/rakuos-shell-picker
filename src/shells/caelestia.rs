@@ -142,6 +142,6 @@ pub const IDENTITY: Identity = Identity {
     ],
     // The runtime it is built on, which DMS installs and Ambxst reloads. Listed
     // so a switch away from DMS keeps it while Caelestia is the target.
-    runtime_packages: &["quickshell", "quickshell-git"],
+    runtime_packages: &["quickshell", "quickshell-git", "hyprpolkitagent"],
     logo: Some("caelestia.svg"),
 };
