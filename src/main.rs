@@ -186,6 +186,10 @@ fn main() -> gtk4::glib::ExitCode {
     match args.first().map(String::as_str) {
         Some("--dry-run") => dry_run(&args[1..]),
         Some("--switch") => switch(&args[1..]),
+        Some("--version") | Some("-V") => {
+            println!("rakuos-shell-picker {}", env!("CARGO_PKG_VERSION"));
+            std::process::exit(0);
+        }
         _ => {}
     }
 
