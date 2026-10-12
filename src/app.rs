@@ -32,7 +32,7 @@ pub fn run() -> gtk4::glib::ExitCode {
         // exists. The content is attached afterwards.
         let window = ApplicationWindow::builder()
             .application(app)
-            .title("Shell Picker")
+            .title("RakuOS Shell Picker")
             .default_width(DEFAULT_SIZE)
             .default_height(DEFAULT_SIZE)
             .build();
