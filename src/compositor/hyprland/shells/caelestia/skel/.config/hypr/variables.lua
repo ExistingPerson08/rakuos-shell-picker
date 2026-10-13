@@ -8,7 +8,7 @@ return {
     -- Apps
     terminal                   = "ghostty",
     browser                    = "firefox",
-    editor                     = "zeditor",
+    editor                     = "zed",
     fileExplorer               = "nautilus",
     audioSettings              = "pwvucontrol",
 

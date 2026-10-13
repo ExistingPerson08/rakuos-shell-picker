@@ -97,6 +97,7 @@ pub const IDENTITY: Identity = Identity {
             "ambxst",
             "axctl",
             "matugen",
+            "phosphor-icons-fonts",
             "quickshell-git",
             "hyprpolkitagent",
             "easyeffects",

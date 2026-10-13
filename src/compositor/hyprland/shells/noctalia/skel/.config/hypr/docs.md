@@ -44,7 +44,7 @@ These variables are read by:
 TERMINAL     = "ghostty"
 FILE_MANAGER = "nautilus"
 BROWSER      = "firefox"
-EDITOR       = "zeditor"
+EDITOR       = "zed"
 CALCULATOR   = "gnome-calculator"
 ```
 

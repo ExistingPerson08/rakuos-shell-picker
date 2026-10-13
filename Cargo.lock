@@ -518,7 +518,7 @@ dependencies = [
 
 [[package]]
 name = "rakuos-shell-picker"
-version = "0.9.7"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "gtk4",
