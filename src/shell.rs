@@ -286,7 +286,8 @@ pub struct Identity {
     ///
     /// DMS brings up its own agent and Noctalia sets `polkit_agent = true`, so
     /// both answer `pkexec` from the shell process. Caelestia and Ambxst do not:
-    /// their Hyprland config runs `/usr/libexec/hyprpolkitagent` from an
+    /// their Hyprland config runs
+    /// `/usr/libexec/polkit-mate-authentication-agent-1` from an
     /// `exec-once`/autostart line, which a live switch never reaches — a switch
     /// reloads the config, and `exec-once` does not run again on reload. So a
     /// switch that stops such a shell and starts one of these finds nobody to

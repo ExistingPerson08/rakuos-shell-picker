@@ -460,7 +460,7 @@ pub fn apply_with(
             // replaced, so it is reloaded first and the new shell's rules are
             // the ones in effect. Then the new shell must have a polkit agent:
             // shells that answer polkit themselves (DMS, Noctalia) register one
-            // a beat after start, and the ones that lean on `hyprpolkitagent`
+            // a beat after start, and the ones that lean on `mate-polkit`
             // (Caelestia, Ambxst) never started it, because a reload does not
             // run their `exec-once` line. So start that agent if the shell names
             // one, then give whatever is up time to register — without an agent,

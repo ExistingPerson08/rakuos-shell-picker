@@ -7,7 +7,7 @@
 //!
 //!   ```text
 //!   1. quickshell-git
-//!   2. caelestia-shell google-rubik-fonts cascadia-code-nf-fonts material-symbols-fonts hyprpolkitagent
+//!   2. caelestia-shell google-rubik-fonts cascadia-code-nf-fonts material-symbols-fonts mate-polkit
 //!   ```
 //!
 //!   `quickshell-git` is the runtime, named first for the reason DMS names it
@@ -29,23 +29,23 @@
 //!   shell starts with blank glyphs.
 //!
 //! - **uninstall**: one stage, `pkexec rum remove -y`, naming
-//!   `caelestia-shell` and `quickshell-git` — everything Caelestia's install
-//!   brought in, the runtime included, and for DMS's reason: a removal plan is
-//!   the declaration of what this shell put on the machine, and *which* of it
-//!   may actually go is decided at the moment of the switch. `switch::uninstall`
-//!   drops any package the shell being switched **to** declares in
-//!   [`Self::runtime_packages`]: DMS and Ambxst both declare `quickshell-git`,
-//!   so leaving for either keeps the runtime, and Noctalia declares nothing, so
-//!   leaving for it takes the whole of Caelestia — never an orphan left for
-//!   `rum autoremove`. The fonts stay — they are harmless when unused, and
-//!   taking them away from something else that borrowed them is not this shell's
-//!   call.
+//!   `caelestia-shell`, `quickshell-git`, the three fonts and `mate-polkit` —
+//!   everything Caelestia's install brought in, the runtime included, and for
+//!   DMS's reason: a removal plan is the declaration of what this shell put on
+//!   the machine, and *which* of it may actually go is decided at the moment of
+//!   the switch. `switch::uninstall` drops any package the shell being switched
+//!   **to** declares in [`Self::runtime_packages`]: DMS and Ambxst both declare
+//!   `quickshell-git`, so leaving for either keeps the runtime, and Noctalia
+//!   declares nothing, so leaving for it takes the whole of Caelestia — never an
+//!   orphan left for `rum autoremove`. The fonts are in the plan too: they were
+//!   installed for this shell's look, and the guard keeps any the target still
+//!   declares.
 //!
-//!   After the fonts, `hyprpolkitagent` is the other package that leaves with
-//!   the shell: Caelestia's config starts the Hyprland polkit agent from
-//!   `hypr/hyprland/execs.lua`, and it is packaged for RakuOS. The agent is the
-//!   package-level dependency that makes that `exec_cmd` able to run, so it is
-//!   installed with the shell and removed when a switch leaves it behind.
+//!   After the fonts, `mate-polkit` is the other package that leaves with the
+//!   shell: Caelestia's config starts the GTK polkit agent from
+//!   `hypr/hyprland/execs.lua`. The agent is the package-level dependency that
+//!   makes that `exec_cmd` able to run, so it is installed with the shell and
+//!   removed when a switch leaves it behind.
 //!
 //! - **start**: the compositor's start event. Caelestia's own Hyprland config
 //!   runs `caelestia shell -d` from `hypr/hyprland/execs.lua`, and the live
@@ -84,7 +84,7 @@ pub const IDENTITY: Identity = Identity {
                 "google-rubik-fonts",
                 "cascadia-code-nf-fonts",
                 "material-symbols-fonts",
-                "hyprpolkitagent",
+                "mate-polkit",
             ],
         ],
         program: "pkexec",
@@ -100,8 +100,10 @@ pub const IDENTITY: Identity = Identity {
         // Caelestia goes. Nothing else on the machine asks for the runtime
         // once `caelestia-shell` is in the same transaction, so leaving it out
         // only ever produced an orphan that `rum autoremove` was left to find.
-        // The fonts are left for whatever else may use them.
-        stages: &[&["caelestia-shell", "quickshell-git", "hyprpolkitagent", "google-rubik-fonts", "cascadia-code-nf-fonts", "material-symbols-fonts",]],
+        // The fonts were installed for this shell's look, so they go with it;
+        // `mate-polkit` is the agent its `execs.lua` starts. The switch's guard
+        // keeps whichever of them the target shell still declares.
+        stages: &[&["caelestia-shell", "quickshell-git", "mate-polkit", "google-rubik-fonts", "cascadia-code-nf-fonts", "material-symbols-fonts",]],
         program: "pkexec",
         args: &["rum", "remove", "-y"],
     }),
@@ -142,9 +144,9 @@ pub const IDENTITY: Identity = Identity {
     // agent its own config starts, shared with Ambxst. Listed so a switch to
     // Caelestia or Ambxst keeps them; leaving for a shell that needs neither
     // takes them away.
-    runtime_packages: &["quickshell", "quickshell-git", "hyprpolkitagent"],
+    runtime_packages: &["quickshell", "quickshell-git", "mate-polkit"],
     // Caelestia's config starts this from `execs.lua`; a live switch has to start
     // it itself. See `Identity::polkit_agent`.
-    polkit_agent: &["/usr/libexec/hyprpolkitagent"],
+    polkit_agent: &["/usr/libexec/polkit-mate-authentication-agent-1"],
     logo: Some("caelestia.svg"),
 };

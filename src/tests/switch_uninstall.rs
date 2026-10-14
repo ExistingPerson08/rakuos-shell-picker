@@ -82,7 +82,14 @@ fn leaving_caelestia_takes_the_runtime_unless_the_next_shell_runs_on_it() {
 
     assert_eq!(
         plan.packages(),
-        vec!["caelestia-shell", "quickshell-git", "hyprpolkitagent"],
+        vec![
+            "caelestia-shell",
+            "quickshell-git",
+            "mate-polkit",
+            "google-rubik-fonts",
+            "cascadia-code-nf-fonts",
+            "material-symbols-fonts",
+        ],
         "every package the install put there has to be removable"
     );
 

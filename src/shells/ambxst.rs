@@ -11,7 +11,7 @@
 //!
 //!   ```text
 //!   1. quickshell-git
-//!   2. ambxst axctl matugen phosphor-icons-fonts hyprpolkitagent
+//!   2. ambxst axctl matugen phosphor-icons-fonts mate-polkit
 //!   ```
 //!
 //!   `quickshell-git` is named explicitly because nothing requires it: Ambxst
@@ -22,18 +22,20 @@
 //!   fails there is then nothing of Ambxst on the machine at all.
 //!
 //!   `axctl` is the companion daemon (`AxctlService.qml`), `matugen` renders the
-//!   theme from the wallpaper, and `phosphor-icons-fonts` supplies the icon
-//!   glyphs the shell draws. No package requires any of the three; nothing but
-//!   this list would put them on the machine.
+//!   theme from the wallpaper, `phosphor-icons-fonts` supplies the icon glyphs
+//!   the shell draws, `mate-polkit` answers its `pkexec` and `easyeffects` runs
+//!   its audio processing. No package requires any of them; nothing but this
+//!   list would put them on the machine.
 //!
 //! - **uninstall**: one stage over Ambxst's own packages, `quickshell-git`,
-//!   `matugen` and `hyprpolkitagent` included because a switch to a shell that
+//!   `matugen` and `mate-polkit` included because a switch to a shell that
 //!   does not use them should not leave them orphaned. All three are shared —
 //!   DMS runs on the same runtime and renders with the same matugen, and
 //!   Caelestia starts the same polkit agent — so `switch::uninstall` drops any
 //!   of them the shell being switched to declares in `runtime_packages`. The
-//!   fonts stay: like Caelestia's, they belong to whatever else may draw with
-//!   them rather than to the shell.
+//!   icon font and `easyeffects` are in the plan for the same reason: both were
+//!   installed for this shell, and the guard keeps whichever the target still
+//!   declares.
 //!
 //! - **start**: a direct process, `ambxst`. Ambxst arms its own
 //!   `hyprland.start` hook from the `~/.local/share/ambxst/hyprland.lua` it
@@ -76,7 +78,7 @@ pub const IDENTITY: Identity = Identity {
                 "axctl",
                 "matugen",
                 "phosphor-icons-fonts",
-                "hyprpolkitagent",
+                "mate-polkit",
                 "easyeffects",
             ],
         ],
@@ -88,18 +90,19 @@ pub const IDENTITY: Identity = Identity {
     }),
     uninstall_plan: Some(UninstallPlan {
         package: "ambxst",
-        // Ambxst's own package, its companion daemon, and the two shared pieces
-        // it installed. `switch::uninstall` drops any of the shared ones the
-        // shell being switched to declares in `runtime_packages`, so a switch to
-        // DMS keeps both and a switch to Noctalia takes them. The fonts are not
-        // here on purpose — see the module note.
+        // Ambxst's own package, its companion daemon, and the pieces it
+        // installed. `switch::uninstall` drops any of the shared ones the shell
+        // being switched to declares in `runtime_packages`, so a switch to DMS
+        // keeps what DMS shares and a switch to Noctalia takes them all. The
+        // icon font and `easyeffects` were installed with Ambxst, so they travel
+        // with it too.
         stages: &[&[
             "ambxst",
             "axctl",
             "matugen",
             "phosphor-icons-fonts",
             "quickshell-git",
-            "hyprpolkitagent",
+            "mate-polkit",
             "easyeffects",
         ]],
         program: "pkexec",
@@ -145,9 +148,9 @@ pub const IDENTITY: Identity = Identity {
     // it shares with Caelestia. All have to be named so a switch between the
     // shells that use them keeps them, while a switch to a shell that needs none
     // (Noctalia) takes them away.
-    runtime_packages: &["quickshell", "quickshell-git", "matugen", "hyprpolkitagent"],
+    runtime_packages: &["quickshell", "quickshell-git", "matugen", "mate-polkit"],
     // Ambxst starts this from `config/autostart.lua`; a live switch has to start
     // it itself. See `Identity::polkit_agent`.
-    polkit_agent: &["/usr/libexec/hyprpolkitagent"],
+    polkit_agent: &["/usr/libexec/polkit-mate-authentication-agent-1"],
     logo: Some("ambxst-logo-color.svg"),
 };

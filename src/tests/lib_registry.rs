@@ -167,7 +167,7 @@ fn only_packaged_shells_can_be_installed_and_they_use_polkit() {
     assert_eq!(
         plan.command_line(),
         "pkexec rum install -y --refresh quickshell-git caelestia-shell \
-         google-rubik-fonts cascadia-code-nf-fonts material-symbols-fonts hyprpolkitagent"
+         google-rubik-fonts cascadia-code-nf-fonts material-symbols-fonts mate-polkit"
     );
     // The shell's own package must be among the packages it installs, or the
     // availability check and the install would drift apart.
@@ -178,13 +178,14 @@ fn only_packaged_shells_can_be_installed_and_they_use_polkit() {
     let plan = ambxst
         .install_plan
         .expect("ambxst installs from a repository");
-    // Its own package, the runtime in a stage of its own, and the four things
+    // Its own package, the runtime in a stage of its own, and the five things
     // nothing requires: the companion daemon, the theming tool, the icon fonts
-    // the shell draws with and the polkit agent its config starts.
+    // the shell draws with, the polkit agent its config starts and the audio
+    // effects daemon.
     assert_eq!(
         plan.command_line(),
         "pkexec rum install -y --refresh quickshell-git ambxst axctl matugen \
-         phosphor-icons-fonts hyprpolkitagent"
+         phosphor-icons-fonts mate-polkit easyeffects"
     );
     assert!(plan.packages().contains(&plan.package));
     assert_eq!(plan.program, "pkexec");
