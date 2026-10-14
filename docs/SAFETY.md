@@ -497,11 +497,14 @@ sana, melainkan urutan di depannya: `~/.config/hypr` ikut di-backup pada langkah
 backup adalah satu-satunya tempat config Hyprland milik user masih ada — jadi
 backup itu bukan pelengkap, dan menghapusnya berarti menghapus config sendiri.
 
-`uwsm` tidak ikut berperan, dan tidak pernah ada. Rantainya `start-hyprland` ->
-`Hyprland` -> `noctalia`: UWSM menjalankan kompositor lalu turun, tidak ada
-proses uwsm di rantai itu. Yang menjalankan shell adalah baris
-`hl.exec_cmd("noctalia")` di `config/autostart.lua` — ada di skel, diinstal
-utuh bersama direktorinya. `~/.config/uwsm` lagi tidak per-desktop sama sekali —
+`uwsm` tidak berperan dalam **menjalankan shell**, dan memang tidak pernah.
+Rantai start-nya `start-hyprland` -> `Hyprland` -> `noctalia`: UWSM menjalankan
+kompositor lalu turun, tidak ada proses uwsm yang menaungi shell. Yang
+menjalankan shell adalah baris `hl.exec_cmd("noctalia")` di
+`config/autostart.lua` — ada di skel, diinstal utuh bersama direktorinya. (UWSM
+tetap muncul di **logout** sebagai salah satu jalur `uwsm stop`, lihat
+`apply::logout`; itu soal mengakhiri sesi, bukan menjalankan shell.)
+`~/.config/uwsm` lagi tidak per-desktop sama sekali —
 bagian per-desktopnya ada di sistem, `/usr/share/uwsm/plugins/<desktop>.sh`,
 yang tidak pernah kita sentuh; bagian user-nya satu skrip `env` global yang
 dipakai bersama semua sesi. Jadi isinya akan identik untuk setiap kompositor,
@@ -616,7 +619,7 @@ to_shell = "dms"
 to_compositor = "hyprland"
 started_at = "2026-10-02T18:30:45Z"   # RFC 3339, UTC
 outcome = "started"                    # started | failed | rolled_back
-app_version = "0.1.0"
+app_version = "1.0.2"
 ```
 
 ## Rollback

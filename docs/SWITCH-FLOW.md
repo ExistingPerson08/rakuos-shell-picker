@@ -67,7 +67,7 @@ Yang disimpan, lengkap dengan alasannya:
 | 4 | `.config/qt6ct/` | sama |
 | 5 | `.config/hypr/` | Konfigurasi kompositor. **Selalu** disimpan di setiap switch, karena `plan` mengambilnya dari skel shell tujuan — artinya file di sini diganti mentah-mentah dan salinan ini adalah satu-satunya cara untuk pernah kembali |
 | 6 | `.config/noctalia/` | `config_dir` Noctalia |
-| 7 | `.local/state/noctalia/` | `state_dir` — di mesin ini berisi **438 file**. Sebagian besar setup Noctalia yang sebenarnya ada di sini, bukan di `.config` |
+| 7 | `.local/state/noctalia/` | `state_dir` — 389 dari 445 file yang di-backup ada di sini. Sebagian besar setup Noctalia yang sebenarnya ada di sini, bukan di `.config` |
 | 8 | `.local/share/applications/dev.noctalia.Noctalia.desktop` | `backup_extra_paths` — launcher yang akan ditimpa switch |
 
 Tabel di atas adalah separuh **shell yang ditinggalkan**. Swap juga menimpa
@@ -313,14 +313,20 @@ bukan milik image.
 
 ## 6. Logout
 
-1. `loginctl terminate-session $XDG_SESSION_ID`
-2. Kalau gagal → switch tetap berhasil, diminta logout manual
+Tiga jalur, dicoba berurutan (`apply::logout`):
 
-`systemctl --user logout` pernah dicoba lebih dulu sebagai jalur yang lebih
-"rapi", tetapi systemd 261 tidak punya verb itu sama sekali — jawabannya
-`Unknown command verb 'logout', did you mean 'reboot'?`. Percobaan itu tidak
-pernah sekali pun berhasil, jadi yang diambil hanyalah satu baris log yang tidak
-bisa ditindaklanjuti siapa pun. `loginctl` sekarang satu-satunya jalur.
+1. `compositor.exit()` — meminta kompositor keluar lewat socket-nya sendiri
+   (`hyprctl dispatch exit` di Hyprland), tanpa pertanyaan scope sama sekali.
+2. `uwsm stop` — dipakai kalau UWSM yang memiliki sesi; berhenti sebagai unit,
+   jadi tidak terkena aturan scope di bawah.
+3. `loginctl terminate-session $XDG_SESSION_ID` — tepat ketika proses ini memang
+   bagian dari sesi (mis. dijalankan dari terminal di dalamnya).
+
+App yang dijalankan sebagai systemd user service hidup di
+`user@UID.service/app.slice`, bukan di scope sesi grafis, sehingga logind
+menolak `terminate-session` sebagai permintaan lintas-sesi — itulah sebabnya
+jalur kompositor dan UWSM dicoba lebih dulu. Kalau ketiganya gagal, switch tetap
+berhasil dan user diminta logout manual.
 
 Logout adalah bagian dari pekerjaan, bukan saran: sesi yang masih berjalan tetap
 memakai konfigurasi Hyprland lama, dan shell barunya baru benar-benar hidup di
@@ -501,10 +507,9 @@ yang memang sengaja ditinggalkan.
 
 ## 6. Logout
 
-Sama persis dengan arah pertama: `loginctl terminate-session`, dan kalau itu
-gagal switch tetap dilaporkan sukses dengan catatan bahwa logout manual
-diperlukan. `systemctl --user logout` tidak dipakai — verb itu tidak ada di
-systemd 261, jadi mencobanya cuma menghasilkan baris gagal di log.
+Sama persis dengan arah pertama: tiga jalur berurutan (`compositor.exit()` →
+`uwsm stop` → `loginctl terminate-session`), dan kalau semuanya gagal switch
+tetap dilaporkan sukses dengan catatan bahwa logout manual diperlukan.
 
 ---
 

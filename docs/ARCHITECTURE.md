@@ -34,14 +34,16 @@ src/compositor/             satu folder per compositor
       noctalia/
         mod.rs              PORT: ke mana ditulis, apa yang diselamatkan,
                             apa yang dibersihkan saat shell keluar
-        skel/               file yang dipasang switch (.config/hypr, gtk, launcher)
+        skel/               file yang dipasang switch (.config/hypr, gtk, qt6ct,
+                            .config/noctalia, launcher)
       dms/
         mod.rs
         skel/
       caelestia/mod.rs + skel    skel/.config/hypr milik upstream Caelestia
       ambxst/
         mod.rs              PORT: config `.config/ambxst`, state `.local/state/ambxst`
-        skel/               config Hyprland, gtk, qt5ct/qt6ct, launcher
+        skel/               config Hyprland, qt6ct, data .local/share/ambxst,
+                            launcher (Noctalia, NoDisplay)
   niri/
     mod.rs                  kosong — dicadangkan, catatannya di sana
   fake.rs                   compositor kedua untuk test, hanya di build test

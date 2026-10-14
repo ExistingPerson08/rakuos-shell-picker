@@ -142,7 +142,8 @@ memindah shell yang sedang berjalan, bukan memasang paket:
 - Hanya `Confirm switch` + `Switch` yang boleh lanjut ke backend. Empat jalur
   lain berhenti di sini, dan itu diuji langsung
   (`every_refusal_is_distinct_from_a_confirmation`).
-- Eksekusi switch adalah urusan `ShellBackend::preflight()`, bukan dialog.
+- Eksekusi switch adalah urusan `switch::everything()` (yang memanggil
+  `apply::apply()`), bukan dialog. Dialog hanya gerbang konfirmasi.
 
 ## Halaman compositor yang diblokir
 

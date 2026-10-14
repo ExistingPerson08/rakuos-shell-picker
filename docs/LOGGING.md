@@ -45,7 +45,7 @@ nama UID dan mode 0700 — bukan file telanjang di `/tmp`.
 Isi:
 
 ```
-2026-10-02T18:30:45Z INFO  start rakuos-shell-picker 0.1.0
+2026-10-02T18:30:45Z INFO  start rakuos-shell-picker 1.0.2
 2026-10-02T18:30:45Z INFO  compositor detected: hyprland
 2026-10-02T18:30:45Z INFO  inventory: noctalia=installed dms=available
 2026-10-02T18:31:02Z INFO  switch begin op=7f3a1c2e from=noctalia to=dms
@@ -161,7 +161,7 @@ melihat langsung lewat badge di card-nya.
 ## Contoh isi log gagal
 
 ```
-=== rakuos-shell-picker 0.1.0 ===
+=== rakuos-shell-picker 1.0.2 ===
 operation : 7f3a1c2e
 shell     : dms
 compositor: hyprland

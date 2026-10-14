@@ -21,7 +21,7 @@ lengkap fitur beserta statusnya.
 ## Build & run
 
 ```bash
-cd "/var/home/mindset/Project/DE switch/rakuos-shell-picker"
+# jalankan dari root repo
 cargo run -p rakuos-shell-picker   # atau: cargo run
 ```
 
