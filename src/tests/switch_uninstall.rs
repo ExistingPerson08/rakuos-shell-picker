@@ -169,3 +169,37 @@ fn a_plan_whose_every_package_is_needed_by_the_next_shell_runs_nothing() {
         "keeping something is not a transaction: {said:?}"
     );
 }
+
+#[test]
+fn a_base_image_package_is_never_sent_to_the_package_manager() {
+    // A base image is read-only, so `rum remove` refuses its packages: a stage
+    // that named one could only fail. Filtering by origin is what lets a shell
+    // that lives in the image carry a removal plan at all — Noctalia on
+    // Hyprland, DMS on Niri — so this is the guard those plans rely on.
+    //
+    // `bash` stands in for any base package: every RakuOS and Fedora build root
+    // has it in the default rpm database, so its origin is `Base` wherever the
+    // suite runs, and nothing in a one-package plan can be removed.
+    let plan = UninstallPlan {
+        package: "bash",
+        stages: &[&["bash"]],
+        program: "pkexec",
+        args: &["rum", "remove", "-y"],
+    };
+
+    let mut said = Vec::new();
+    let outcome = uninstall(plan, &[], &mut |line| said.push(line.to_string()));
+
+    assert!(
+        matches!(outcome, Removed::Kept { ref packages } if packages == &vec!["bash"]),
+        "a base-image package is kept rather than sent to rum: {outcome:?}"
+    );
+    assert!(
+        said.iter().any(|l| l.contains("base image")),
+        "why it was kept has to be said out loud: {said:?}"
+    );
+    assert!(
+        !said.iter().any(|l| l.contains("authorizing")),
+        "nothing was sent anywhere, so no password prompt: {said:?}"
+    );
+}

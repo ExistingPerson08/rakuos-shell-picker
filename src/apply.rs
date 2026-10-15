@@ -491,8 +491,9 @@ pub fn apply_with(
                 }
                 crate::switch::Removed::Kept { .. } => {
                     progress(&format!(
-                        "{} shares everything it was installed with with {}, so nothing \
-                         was removed",
+                        "{} has nothing this switch may remove: what it was \
+                         installed with is either shared with {} or part of the \
+                         base image, so nothing was removed",
                         outgoing.display_name, target.display_name
                     ));
                 }

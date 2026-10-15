@@ -1,17 +1,21 @@
 # rakuos-shell-picker
 
 Pilih **desktop shell** (panel/widgets/status layer) yang berjalan di atas
-sebuah compositor. Compositor sendiri — Hyprland — **tidak** berganti: selama
-window picker terbuka, compositor yang sedang jalan tetap jalan.
+sebuah compositor. Compositor sendiri — **Hyprland atau Niri** — **tidak**
+berganti: selama window picker terbuka, compositor yang sedang jalan tetap
+jalan.
 
 ```
-Hyprland               <- compositor, selalu hidup, tidak pernah di-restart
-   └── shell           <- yang dipilih user: Noctalia, DMS, Caelestia, Ambxst
+Hyprland / Niri        <- compositor, selalu hidup, tidak pernah di-restart
+   └── shell           <- yang dipilih user
 ```
 
-Niri pernah terdaftar dan sudah dihapus. `src/compositor/niri/mod.rs` mencatat
-apa yang perlu dikerjakan untuk menambahkannya kembali, dan kenapa ia tidak
-cukup dengan sekadar mendaftarkannya.
+Shell yang tersedia berbeda per compositor:
+
+| Compositor | Shell |
+|---|---|
+| Hyprland | Noctalia, DMS, Caelestia, Ambxst |
+| Niri | DMS, Noctalia |
 
 ## Status
 
@@ -41,7 +45,7 @@ src/app.rs       aplikasi GTK & window
 src/ui/          widget, satu file per bagian
 src/compositor/  satu folder per compositor
   hyprland/shells/   satu folder per shell, isinya skel/ dan Port-nya
-  niri/              kosong, dicadangkan
+  niri/shells/       satu folder per shell (dms, noctalia), isinya skel/ dan Port-nya
 src/shell.rs     tipe Shell & cara memeriksa satu shell
 src/session.rs   state active/previous
 assets/          logo SVG
@@ -80,7 +84,7 @@ Sebelum mulai coding, cek environment:
 
 ## Alur kerja
 
-1. Mendeteksi compositor yang sedang jalan (Hyprland). Kalau tidak dikenali, semua klik ditolak.
+1. Mendeteksi compositor yang sedang jalan (Hyprland atau Niri). Kalau tidak dikenali, semua klik ditolak.
 2. Menampilkan daftar shell yang tersedia untuk compositor tersebut.
 3. Saat user memilih shell: backup konfigurasi yang relevan dengan shell, stop shell lama, terapkan konfigurasi target (dari skel/backup logic), start shell baru.
 4. Verifikasi: bus notifikasi berpindah ke shell baru.

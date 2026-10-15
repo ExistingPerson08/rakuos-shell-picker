@@ -93,20 +93,33 @@ fn each_compositor_lists_the_shells_it_really_supports() {
         hyprland.shells().iter().map(|s| s.id).collect::<Vec<_>>(),
         ["noctalia", "dms", "caelestia", "ambxst"]
     );
+
+    // Niri's two: DMS from its base image and Noctalia from the repository.
+    // Caelestia is Hyprland-only upstream and Ambxst has no Niri port, so neither
+    // is here — a shell absent for a compositor is exactly what the per-compositor
+    // registry exists to express.
+    let niri = compositor::all()
+        .into_iter()
+        .find(|c| c.id() == "niri")
+        .expect("niri registered");
+    assert_eq!(
+        niri.shells().iter().map(|s| s.id).collect::<Vec<_>>(),
+        ["dms", "noctalia"]
+    );
 }
 
 #[test]
 fn a_compositor_only_offers_shells_it_really_supports() {
-    // Hyprland's four are the ones upstream documents for it. Caelestia is
-    // present because upstream ships a Hyprland shell for it.
-    //
-    // The Niri list this used to check — Noctalia, DMS and Ambxst, without
-    // Caelestia, because only third party forks exist — is recorded in
-    // `compositor::niri`, which is the note for whoever brings it back. There
-    // is no second registered compositor to check, so the rule is stated
-    // rather than exercised: a new entry gets reviewed against upstream, not
-    // against this test.
-    assert_eq!(compositor::all().len(), 1, "only Hyprland is registered");
+    // The rule this states rather than exercises: a compositor's shell list is
+    // reviewed against upstream when it is added, not derived here. Caelestia is
+    // on Hyprland because upstream ships a Hyprland shell for it; it is not on
+    // Niri because only third-party forks exist. Noctalia and DMS are on both,
+    // each with its own port.
+    assert_eq!(
+        compositor::all().len(),
+        2,
+        "Hyprland and Niri are registered"
+    );
 }
 
 #[test]
@@ -132,16 +145,20 @@ fn an_install_plan_names_the_same_package_as_the_shell() {
 
 #[test]
 fn only_packaged_shells_can_be_installed_and_they_use_polkit() {
-    // Noctalia is the only shell left without an install plan: it is in the base
-    // image and never needs installing. The other three are packaged and each
-    // installs through polkit so the password never passes through this process.
+    // Every registered shell is packaged in the `rakuos` repository, including
+    // Noctalia: it happens to be in the Hyprland image already, so its install
+    // never runs there, but the same plan installs it on Niri. Each install goes
+    // through polkit so the password never passes through this process.
     let with_plan: BTreeSet<_> = compositor::all()
         .iter()
         .flat_map(|c| c.shells())
         .filter(|s| s.install_plan.is_some())
         .map(|s| s.id)
         .collect();
-    assert_eq!(with_plan, BTreeSet::from(["ambxst", "caelestia", "dms"]));
+    assert_eq!(
+        with_plan,
+        BTreeSet::from(["ambxst", "caelestia", "dms", "noctalia"])
+    );
 
     let dms = super::shell::find("dms").expect("dms registered");
     let plan = dms.install_plan.expect("dms installs from a repository");
@@ -189,18 +206,41 @@ fn only_packaged_shells_can_be_installed_and_they_use_polkit() {
     );
     assert!(plan.packages().contains(&plan.package));
     assert_eq!(plan.program, "pkexec");
+
+    let noctalia = super::shell::find("noctalia").expect("noctalia registered");
+    let plan = noctalia
+        .install_plan
+        .expect("noctalia installs from the repository");
+    // One package and nothing else: Noctalia is a native binary that declares
+    // what it needs, unlike the quickshell shells, so there is no runtime or font
+    // to name beside it.
+    assert_eq!(
+        plan.command_line(),
+        "pkexec rum install -y --refresh noctalia"
+    );
+    assert_eq!(plan.program, "pkexec");
 }
 
 #[test]
-fn a_shell_without_an_install_plan_has_nothing_to_install() {
-    // Noctalia is the last shell in the base image, so it is the only one that
-    // is neither installed nor removable through a plan. Its files are still
-    // the user's, and cleaning them on the way out is `clean`'s job.
-    let noctalia = super::shell::find("noctalia").expect("noctalia registered");
-    assert!(
-        noctalia.install_plan.is_none(),
-        "noctalia should have no install plan"
-    );
+fn a_shell_without_an_install_plan_is_not_removable_either() {
+    // A removal only makes sense for a package the picker could have put there.
+    // A shell the picker cannot install — one that lives in a base image with no
+    // repository entry — must therefore not carry a removal plan either, or the
+    // dialog would offer to take off something no switch ever added. Every
+    // registered shell is packaged today, so this guards the next one that is not
+    // rather than exercising a case that exists.
+    for compositor in compositor::all() {
+        for shell in compositor.shells() {
+            if shell.install_plan.is_none() {
+                assert!(
+                    shell.uninstall_plan.is_none(),
+                    "{}/{} cannot be installed, so it must not be removable either",
+                    compositor.id(),
+                    shell.id
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -383,8 +423,8 @@ fn every_declared_skel_extra_path_really_is_in_the_skel() {
     // Scoped to shells that have a skel directory. One without is refused
     // outright by `plan`, before extras matter — see
     // `a_compositor_with_no_skel_yet_refuses_every_shell_on_it` — so there is
-    // nothing to check. Niri is in that position today: its skel folder is
-    // empty, which is why `niri/dms` can list four paths it has nowhere to put.
+    // nothing to check. Every registered compositor has a skel today, so this
+    // loop only fires for a shell that arrives before its skel does.
     for compositor in super::compositor::all() {
         for shell in compositor.shells() {
             let skel = crate::apply::skel_for(compositor.id(), shell.id);
@@ -504,10 +544,6 @@ fn only_a_detached_start_detaches() {
     // the spawn branch at all, or a compositor start hook that does not wait,
     // so carrying the flag would cost the process accounting `stop` relies on
     // and buy nothing.
-    //
-    // Niri was the only thing that ever needed the flag. It is gone, so the
-    // loop below no longer has a shell to catch — which is exactly why the
-    // property is now asserted on the mechanisms themselves, further down.
     for compositor in super::compositor::all() {
         for shell in compositor.shells() {
             if shell.mechanism.uses_systemd_unit() {
@@ -521,11 +557,10 @@ fn only_a_detached_start_detaches() {
         }
     }
 
-    // `SpawnAtStartup` is the one mechanism that has to detach, and Niri was
-    // the only thing using it. It is kept for the next project, so the rule is
-    // checked on the mechanism itself rather than on a port that no longer
-    // exists — a variant that stopped detaching would be caught here, while one
-    // nobody uses yet is not caught by the loop above.
+    // `SpawnAtStartup` is the one mechanism that has to detach, because Niri
+    // waits for a startup command to return before continuing. Asserted on the
+    // mechanism itself as well, so a variant that stopped detaching is caught
+    // even if no port used it.
     assert!(super::shell::StartMechanism::SpawnAtStartup.needs_detached_start());
     for mechanism in [
         super::shell::StartMechanism::Autostart,
@@ -538,6 +573,29 @@ fn only_a_detached_start_detaches() {
             "{mechanism:?} does not wait for the command, so detaching buys nothing"
         );
     }
+
+    // Niri is where the flag is used: its Noctalia port starts from
+    // `spawn-at-startup` and so must detach, while DMS there goes through the
+    // same systemd unit as everywhere else.
+    let niri = &super::compositor::NIRI;
+    let noctalia = niri
+        .shells()
+        .iter()
+        .find(|s| s.id == "noctalia")
+        .expect("noctalia registered for niri");
+    assert!(
+        noctalia.mechanism.needs_detached_start(),
+        "niri waits for spawn-at-startup to return, so noctalia has to detach"
+    );
+    let dms = niri
+        .shells()
+        .iter()
+        .find(|s| s.id == "dms")
+        .expect("dms registered for niri");
+    assert!(
+        !dms.mechanism.needs_detached_start(),
+        "niri/dms starts through systemd and does not detach"
+    );
 
     // Nothing on hyprland detaches, whatever its mechanism: hyprland.lua's
     // exec_on does not wait for the command, so the flag buys nothing and
@@ -806,12 +864,11 @@ fn a_compositor_with_no_skel_yet_refuses_every_shell_on_it() {
     // cannot complete — and has to say so rather than leave the old
     // configuration in place and call it a switch.
     //
-    // This was tested through Niri, which had three ports and an empty skel.
-    // Niri is gone, and the rule it was covering is the one that will be
-    // needed again when the next compositor is added, so it is tested through
-    // a compositor with no skel directory at all. That is the more general
-    // shape of the same hole: any compositor whose skel has not been written
-    // yet hits exactly this.
+    // Niri once had three ports and an empty skel, which first exposed this.
+    // The rule is the general shape of that hole — any compositor whose skel
+    // has not been written yet hits exactly this — so it is tested through a
+    // compositor with no skel directory at all, independent of which real
+    // compositors are registered.
     let shell = super::compositor::HYPRLAND
         .shells()
         .iter()
@@ -937,9 +994,9 @@ fn every_uninstall_plan_can_do_something() {
 fn a_shell_that_can_be_installed_can_also_be_removed() {
     // Otherwise the picker would put a shell on the machine that only the
     // package manager could ever take off again, which is exactly the
-    // accumulation this feature exists to prevent. Noctalia escapes the rule
-    // because it cannot be installed either: it is in the base image, and both
-    // plans are `None` together.
+    // accumulation this feature exists to prevent. The rule runs one way here;
+    // the other direction — a shell with no plan at all — is checked by
+    // `a_shell_without_an_install_plan_is_not_removable_either`.
     for compositor in compositor::all() {
         for shell in compositor.shells() {
             if shell.install_plan.is_none() {
@@ -981,14 +1038,18 @@ fn an_uninstall_plan_only_removes_packages_the_shell_was_installed_with() {
 }
 
 #[test]
-fn the_shell_in_the_base_image_is_never_uninstalled() {
-    // Noctalia ships in the image, so `rum remove` would refuse it anyway. A
-    // plan that always fails is worse than no plan, and the card that showed a
-    // dead button would be the visible half of that.
+fn a_base_image_shell_can_carry_a_removal_plan() {
+    // Noctalia ships in the Hyprland image, and `rum remove` refuses a base
+    // package — but that is a runtime property, not a reason to leave the plan
+    // off. `switch::uninstall` drops any package whose origin is `Base` before the
+    // package manager sees it, so the plan is safe where the shell is in the image
+    // and useful where a switch installed it (Niri). The base-image safety itself
+    // is tested where it runs, in `src/tests/switch_uninstall.rs`.
     let noctalia = super::shell::find("noctalia").expect("registered");
-    assert!(noctalia.uninstall_plan.is_none());
-    // Its files are another matter: those are the user's, and cleaning them
-    // when switching away is exactly what `clean` does.
+    assert!(noctalia.install_plan.is_some());
+    assert!(noctalia.uninstall_plan.is_some());
+    // Its files are the user's, so cleaning them when switching away is `clean`'s
+    // job independent of either plan.
     assert!(noctalia.config_dir.is_some() || noctalia.state_dir.is_some());
 }
 

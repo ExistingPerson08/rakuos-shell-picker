@@ -483,10 +483,12 @@ pub enum Removed {
     },
     /// The plan names no packages, so there was nothing to remove.
     Malformed { package: &'static str },
-    /// Every package the plan names is one the shell being switched to still
-    /// runs on, so nothing was removed. Not a failure and not "already gone":
-    /// the packages are there on purpose, and saying otherwise would leave a
-    /// reader looking for a package that was never taken away.
+    /// Every package the plan names is kept on purpose — the shell being
+    /// switched to still runs on it, or it belongs to the read-only base image
+    /// and cannot be removed at all — so nothing was removed. Not a failure and
+    /// not "already gone": the packages are there on purpose, and saying
+    /// otherwise would leave a reader looking for a package that was never
+    /// taken away.
     Kept { packages: Vec<&'static str> },
 }
 
@@ -507,6 +509,14 @@ pub enum Removed {
 /// is dropped from every stage before the package manager sees it. That is the
 /// only reason `quickshell` can be in a removal plan at all — see
 /// [`crate::shell::Identity::runtime_packages`].
+///
+/// A package in the **base image** is dropped for a different reason: the image
+/// is read-only, so `rum remove` refuses it and a stage that named it could only
+/// fail. Filtering by origin here is what lets a shell that lives in the image
+/// carry a removal plan at all — on the image it is `Base` and kept, on a
+/// machine where a switch installed it from a repository it is `Overlay` and
+/// removed. Without this the plan would be a button that always fails on the very
+/// machine the shell shipped with.
 pub fn uninstall(
     plan: UninstallPlan,
     keep: &[&'static str],
@@ -528,37 +538,60 @@ pub fn uninstall(
         };
     }
 
-    let kept: Vec<&'static str> = packages
-        .iter()
-        .copied()
-        .filter(|p| keep.contains(p))
-        .collect();
-    let removable: Vec<&'static str> = packages
-        .iter()
-        .copied()
-        .filter(|p| !keep.contains(p))
-        .collect();
+    // Three ways a package the plan names can fail to reach the package
+    // manager, kept apart because they read differently afterwards: the
+    // incoming shell runs on it (`keep`), it belongs to the read-only base image
+    // and cannot be removed at all, or it is simply not on the machine. Only the
+    // last is "already gone"; the first two are there on purpose.
+    let mut shared: Vec<&'static str> = Vec::new();
+    let mut image_owned: Vec<&'static str> = Vec::new();
+    let mut removable: Vec<&'static str> = Vec::new();
+    let mut absent: Vec<&'static str> = Vec::new();
+    for &package in &packages {
+        if keep.contains(&package) {
+            shared.push(package);
+            continue;
+        }
+        match crate::shell::package_origin(package) {
+            crate::shell::Origin::Base => image_owned.push(package),
+            crate::shell::Origin::Overlay => removable.push(package),
+            crate::shell::Origin::NotInstalled => absent.push(package),
+        }
+    }
 
-    if !kept.is_empty() {
+    if !shared.is_empty() {
         let line = format!(
             "keeping {}: the shell that is starting runs on them, so this switch \
              will not remove them",
-            kept.join(", ")
+            shared.join(", ")
+        );
+        progress(&line);
+    }
+
+    if !image_owned.is_empty() {
+        // A base image is read-only, so `rum remove` refuses its packages and a
+        // stage that named one could only fail. Dropping them here is what lets
+        // a shell that lives in the image carry a removal plan at all.
+        let line = format!(
+            "keeping {}: part of the base image, so it cannot be removed",
+            image_owned.join(", ")
         );
         progress(&line);
     }
 
     if removable.is_empty() {
-        return Removed::Kept { packages: kept };
-    }
-
-    if removable
-        .iter()
-        .all(|p| !crate::shell::package_origin(p).installed())
-    {
-        return Removed::AlreadyGone {
-            packages: removable,
-        };
+        // Nothing can be taken off, and which answer is right depends on what is
+        // left: a package kept on purpose is not the same as one that was never
+        // there, and the wrong one sends a reader looking in the wrong place.
+        if !image_owned.is_empty() {
+            return Removed::Kept {
+                packages: shared.into_iter().chain(image_owned).collect(),
+            };
+        }
+        if absent.is_empty() {
+            return Removed::Kept { packages: shared };
+        }
+        return Removed::AlreadyGone { packages: absent };
     }
 
     let mut output = String::new();
@@ -567,16 +600,18 @@ pub fn uninstall(
     for (index, stage) in plan.stages.iter().enumerate() {
         let stage = *stage;
         let number = index + 1;
+        // `removable` already excludes what is shared with the incoming shell,
+        // what the base image owns and what is not on the machine, so a stage is
+        // exactly the removable packages it names.
         let present: Vec<&str> = stage
             .iter()
             .copied()
-            .filter(|p| !keep.contains(p))
-            .filter(|p| crate::shell::package_origin(p).installed())
+            .filter(|p| removable.contains(p))
             .collect();
 
         if present.is_empty() {
             progress(&format!(
-                "stage {number} of {}: {} already removed, skipping",
+                "stage {number} of {}: {} already removed or kept, skipping",
                 plan.stages.len(),
                 stage.join(", ")
             ));

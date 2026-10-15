@@ -28,7 +28,7 @@
 //!
 //! Which shells exist for a given compositor is still not decided here: those
 //! registries live under `compositor::<id>::shells`, because the same shell may
-//! not exist for every compositor. Hyprland is the only one registered today.
+//! not exist for every compositor. Hyprland and Niri are registered today.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -44,9 +44,8 @@ pub enum StartMechanism {
     /// because the backend has to write a different syntax into a different
     /// file, and Niri waits for the command to return before continuing.
     ///
-    /// Nothing uses this today. Niri is the only compositor that needs it and it
-    /// is no longer registered, so the variant is here for that project rather
-    /// than deleted — see `compositor::niri`.
+    /// Noctalia on Niri is the one port that uses it — see
+    /// `compositor::niri::shells::noctalia`.
     SpawnAtStartup,
     /// Launched by a systemd user unit.
     SystemdUserUnit,
@@ -428,8 +427,11 @@ pub struct Shell {
     pub install_plan: Option<InstallPlan>,
     /// How to take this shell's packages off again after switching away from it,
     /// so the shell just left does not accumulate as leftover. `None` means the
-    /// operation does not exist: either there is no package to remove, or — the
-    /// Noctalia case — the shell is in the base image and must never be removed.
+    /// operation does not exist, because the shell has no package a switch could
+    /// have installed. A package the base image owns is not a reason for `None`:
+    /// `switch::uninstall` filters those out by origin at the moment of removal,
+    /// so a shell that is in one image and installable on another — Noctalia —
+    /// declares the plan and lets the origin check decide.
     pub uninstall_plan: Option<UninstallPlan>,
     /// How this shell gets started on this compositor.
     ///
@@ -506,9 +508,9 @@ pub const PICKER_DIR: &str = "rakuos-shell-picker";
 /// How this shell gets installed when it is not there yet.
 ///
 /// Declared next to the shell rather than in a dispatch table, because whether a
-/// shell can be installed is a fact about that shell: DMS, Caelestia and Ambxst
-/// all ship in the `rakuos` repository, and Noctalia is already in the base
-/// image.
+/// shell can be installed is a fact about that shell. Every registered shell
+/// ships in the `rakuos` repository; Noctalia also happens to be in the Hyprland
+/// base image, where its install never runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InstallPlan {
     /// The package that identifies this shell, and what availability is checked
@@ -650,9 +652,10 @@ impl InstallPlan {
 ///
 /// Declared beside [`InstallPlan`] for the same reason it exists: whether a
 /// shell can be removed is a fact about that shell, not a decision for the
-/// switch to invent. DMS, Caelestia and Ambxst can all be removed, and Noctalia
-/// is the only shell in the base image — its plan stays `None` and
-/// `the_shell_in_the_base_image_is_never_uninstalled` holds that line.
+/// switch to invent. Every packaged shell declares one; a package the base image
+/// owns is kept out of the transaction by origin, in `crate::switch::uninstall`,
+/// rather than by leaving the plan off — which is what lets Noctalia carry a plan
+/// that is a no-op on Hyprland and real on Niri.
 ///
 /// The stages run in the order they are written, and there is usually only one:
 /// a plan names the shell's own packages and stops there. Shared runtimes are

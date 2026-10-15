@@ -10,6 +10,16 @@ Cek cepat sebelum mulai kerja:
 ./scripts/check-deps.sh
 ```
 
+Script bantu lain di `scripts/`:
+
+| Script | Gunanya |
+|---|---|
+| `check-deps.sh` | cek toolchain, library dev, lib runtime, dan aset |
+| `install-deps.sh` | pasang yang kurang lewat `pkexec rum install` (idempoten) |
+| `build-test.sh` | `cargo build` + `test` + `clippy` sekaligus, keluar != 0 kalau ada yang merah |
+| `try-niri.sh` | jalankan picker di sesi Niri: dry-run DMS/Noctalia lalu GUI (`--dry` untuk berhenti setelah dry-run) |
+| `try-hyprland.sh` | sama untuk Hyprland: dry-run Noctalia/DMS/Caelestia/Ambxst lalu GUI |
+
 ## ⚠️ Penting: `rpm -q` buta terhadap overlay
 
 Toolchain ini dipasang ke **overlay**, dan `rum` menyimpannya di rpmdb yang
@@ -168,11 +178,19 @@ Test baru = file baru di `src/tests/`, bukan blok baru di bawah file produksi.
 | `rum` | mendeteksi shell terpasang | `rpm -q` hanya melihat base image, sehingga shell di overlay selalu terbaca "not installed" |
 | `/proc` | mendeteksi proses berjalan | status "running" tak pernah muncul |
 | `~/.config/hypr/config/windowrules.lua` berisi rule ShellPicker | window ikut di-tile tanpa rule | rasio persegi hilang |
+| `~/.config/niri/config.kdl` berisi `window-rule` ShellPicker | di Niri window ikut di-tile tanpa rule | rasio persegi hilang |
 
 Rule yang dibutuhkan:
 
 ```lua
 hl.window_rule({ match = { class = "^(org\\.rakuos\\.ShellPicker)$" }, float = true, size = { "806", "806" } })
+```
+
+```kdl
+window-rule {
+    match app-id="^(org.rakuos.ShellPicker)$"
+    open-floating true
+}
 ```
 
 ## librsvg: tidak ada file `.pc`, dan itu normal
@@ -197,6 +215,20 @@ Belum terpasang di mesin ini. Berguna, tidak wajib:
 | ImageMagick | sudah terpasang | cek batas artwork SVG |
 
 ## Kalau harus pasang ulang
+
+Cara rakuos, lewat script:
+
+```bash
+./scripts/install-deps.sh        # pkexec rum install, hanya yang kurang
+```
+
+Setara manualnya (rakuos):
+
+```bash
+pkexec rum install -y rustfmt clippy rust cargo gtk4-devel libadwaita-devel
+```
+
+Bukan rakuos:
 
 ```bash
 sudo dnf install -y rustfmt clippy rust cargo gtk4-devel libadwaita-devel

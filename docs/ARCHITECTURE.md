@@ -45,7 +45,11 @@ src/compositor/             satu folder per compositor
         skel/               config Hyprland, qt6ct, data .local/share/ambxst,
                             launcher (Noctalia, NoDisplay)
   niri/
-    mod.rs                  kosong — dicadangkan, catatannya di sana
+    mod.rs                  alat khusus Niri (niri msg action reload-config/quit)
+    shells/                 satu folder per shell — shell itu DI NIRI
+      mod.rs                urutan kartu
+      dms/mod.rs + skel/
+      noctalia/mod.rs + skel/
   fake.rs                   compositor kedua untuk test, hanya di build test
 
 src/shell.rs                tipe Identity + Port + Shell + InstallPlan +
@@ -307,7 +311,8 @@ tidak satu pun bisa diselesaikan. Switch ditolak `apply::plan` dengan pesan
 bahwa config compositor-nya belum ada — jujur soal penyebab, tapi membuat picker
 tampak rusak. Sekarang `a_skel_is_missing_only_where_the_shell_cannot_be_installed`
 menangkapnya: mendaftarkan compositor yang punya skel kosong adalah test yang
-gagal, bukan tab berisi penolakan.
+gagal, bukan tab berisi penolakan. Niri terdaftar kembali setelah skel-nya ada —
+`shells/dms/` dan `shells/noctalia/` masing-masing membawa `skel/`.
 
 ## Konvensi nama
 

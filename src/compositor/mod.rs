@@ -1,18 +1,17 @@
 //! Compositors the picker knows how to switch shells for.
 //!
 //! This is the only registry the UI walks: each tab comes from here, and each
-//! tab brings its own shell list. Hyprland is the only entry for now. Niri was
-//! registered here and has been removed — see `compositor::niri` for what
-//! bringing it back involves, and why it was not a tab with an empty skel.
+//! tab brings its own shell list. Hyprland and Niri are registered.
 //!
 //! Each compositor also knows how to recognise itself, because the picker must
 //! never act on a compositor that is not the one actually running. See
 //! `docs/SAFETY.md` for the rules this implements.
 //!
-//! With one compositor registered, the cross-compositor refusal is unreachable
-//! from the running app: no card can belong to a compositor that is not the one
-//! on screen. The rule and its tests stay, because they are the reason adding a
-//! second compositor later is a matter of registering it and writing a skel.
+//! With two compositors registered, a card can belong to a compositor that is not
+//! the one on screen, so the cross-compositor refusal is reachable from the
+//! running app and is what stops a switch from being offered for the wrong
+//! session. A compositor is added by registering it here and writing its skel;
+//! the UI itself does not change.
 
 pub mod hyprland;
 pub mod niri;
@@ -108,14 +107,15 @@ pub trait Compositor: Sync {
 }
 
 pub static HYPRLAND: hyprland::Hyprland = hyprland::Hyprland;
+pub static NIRI: niri::Niri = niri::Niri;
 
 /// Tab order is the order of this list.
 ///
-/// One entry, so the app opens on a tab bar of one. That is the whole point of
-/// removing Niri rather than leaving it registered: a registered compositor
-/// promises a working page, and an empty skel could only ever refuse.
+/// Two entries, so the app opens on whichever compositor is running. When neither
+/// is detected it falls back to the first, which is why order is a decision and
+/// not an accident.
 pub fn all() -> Vec<&'static dyn Compositor> {
-    vec![&HYPRLAND]
+    vec![&HYPRLAND, &NIRI]
 }
 
 /// The tab shown when the app opens.

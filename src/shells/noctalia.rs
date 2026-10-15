@@ -1,12 +1,16 @@
-//! Noctalia — a native C++ shell, and the one in the RakuOS base image.
+//! Noctalia — a native C++ shell, and the one in the Hyprland base image.
 //!
 //! What is the same wherever it runs:
 //!
-//! - **install**: none. It is part of the base image, so `rum origin` answers
-//!   `Base`. There is nothing to install, and a switch must never try to remove
-//!   it either — which is why its `uninstall_plan` is `None`. Its config and
-//!   state are still cleaned when switching away, because those are the user's
-//!   files rather than the image's.
+//! - **install/remove**: the `noctalia` package from the `rakuos` repository. On
+//!   the Hyprland base image it is already there, so the install never runs and
+//!   the removal never reaches the package manager — [`crate::switch::uninstall`]
+//!   drops a package whose origin is `Base` before asking for a password. On a
+//!   compositor whose image does not carry it, Niri, the same plan installs and
+//!   removes it like any other shell. Both plans exist for that reason: a plan
+//!   that a given compositor's image happens to make a no-op is not a wrong plan,
+//!   and the alternative — no plan at all — is a shell that can never be removed
+//!   where it *was* installed by a switch.
 //! - **binary**: `/usr/bin/noctalia`, a native binary rather than a quickshell
 //!   process, so the process name is unambiguous.
 //! - **logo**: `noctalia.svg`.
@@ -19,7 +23,7 @@
 //! Noctalia setup lives in `~/.local/state/noctalia` — 389 of the 445 files a real
 //! backup takes. Backing up only the config directory would throw most of it away.
 
-use crate::shell::Identity;
+use crate::shell::{Identity, InstallPlan, UninstallPlan};
 
 pub const IDENTITY: Identity = Identity {
     id: "noctalia",
@@ -29,13 +33,24 @@ pub const IDENTITY: Identity = Identity {
     binary: "noctalia",
     start_argv: &["noctalia"],
     process_match: &[],
-    install_plan: None,
-    // Never. It is part of the base image, so there is nothing to install and
-    // nothing that may be removed: `rum remove` would refuse anyway, and a plan
-    // that always fails is worse than no plan. Its config and state are still
-    // cleaned on a switch away, because those are the user's files, not the
-    // image's.
-    uninstall_plan: None,
+    // One package, one stage. Noctalia is a native C++ binary that names
+    // everything it needs at the package level, so nothing else has to be listed
+    // beside it the way DMS's runtime and Caelestia's fonts are.
+    install_plan: Some(InstallPlan {
+        package: "noctalia",
+        stages: &[&["noctalia"]],
+        program: "pkexec",
+        args: &["rum", "install", "-y", "--refresh"],
+    }),
+    // Its own package and nothing else. On the image this is filtered out before
+    // `rum` sees it — see the module note — and where a switch installed the
+    // package this takes it back off.
+    uninstall_plan: Some(UninstallPlan {
+        package: "noctalia",
+        stages: &[&["noctalia"]],
+        program: "pkexec",
+        args: &["rum", "remove", "-y"],
+    }),
     companion_systemd_user_units: &[],
     // No companions, so nothing of theirs to save or bring back.
     companion_paths: &[],

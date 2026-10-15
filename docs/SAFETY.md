@@ -39,8 +39,8 @@ Jadi kalau ada tab milik compositor lain, semua aksi di tab itu harus
 ### Guard tidak punya arah
 
 Penolakan ini **simetris**, dan itu bukan hal yang bisa dibuktikan dengan satu
-compositor. Kalau user nanti berada di compositor lain, tab Hyprland yang
-menjadi yang ditolak, dengan alasannya terbalik: "hyprland is not the running
+compositor. Sekarang Niri sudah terdaftar, jadi kalau user berada di Niri, tab
+Hyprland yang ditolak, dengan alasannya terbalik: "hyprland is not the running
 compositor — niri is". Tidak ada kode yang menyebut Hyprland sebagai pihak yang
 berwenang.
 
@@ -48,7 +48,8 @@ Aturannya satu perbandingan: `detection.current != compositor.id()`. Karena itu
 menambah compositor ketiga tidak perlu menyentuh logika guard sama sekali.
 
 Kedua arah diuji terhadap compositor yang tidak terdaftar (`compositor::fake`),
-karena compositor sungguhan kedua tidak ada lagi untuk dijadikan alat uji.
+supaya guard tetap diuji sebagai perbandingan murni, bukan lewat daftar yang
+kebetulan terisi dua.
 
 App juga membuka tab compositor yang sedang jalan, bukan tab pertama. Kalau tidak,
 user compositor lain akan dibuka ke halaman Hyprland yang ditolak, dengan banner
@@ -66,13 +67,13 @@ Envvar khusus compositor, yang paling bisa dipercaya:
 | Compositor | Penanda | Andal |
 |---|---|---|
 | Hyprland | `HYPRLAND_INSTANCE_SIGNATURE` terisi | ya |
-| Niri | `NIRI_SOCKET` ada dan socket-nya bisa dibuka | ya, tapi tidak terdaftar |
+| Niri | `NIRI_SOCKET` ada dan socket-nya bisa dibuka | ya |
 | Sway | `SWAYSOCK` | ya |
 
-Hanya Hyprland yang terdaftar, jadi `detect_with` hanya akan pernah menyebut
-`hyprland` atau tidak sama sekali. Sesi Niri karena itu tidak terdeteksi, dan
-seluruh klik ditolak dengan `RefuseUndetected`, bukan menebak compositor mana
-yang sedang berjalan.
+Yang terdaftar sekarang Hyprland dan Niri, jadi `detect_with` hanya akan pernah
+menyebut salah satu dari keduanya atau tidak sama sekali. Sesi lain (misalnya
+Sway) tidak terdeteksi, dan seluruh klik ditolak dengan `RefuseUndetected`,
+bukan menebak compositor mana yang sedang berjalan.
 
 Ditambah pemeriksaan dasar yang wajib lolos dulu: `WAYLAND_DISPLAY` dan
 `XDG_RUNTIME_DIR` terisi.
@@ -167,12 +168,18 @@ yang ditampilkan sistem. Bedanya: `packages.list` hanya memuat paket yang
 memang diminta user, sedangkan rpmdb overlay ikut memuat seluruh dependency
 yang ikut terpasang.
 
-Konsekuensi yang sudah terlihat sekarang: `Noctalia` ada di base image,
-sedangkan `dms`, `caelestia` dan `ambxst` semuanya ada di repo `rakuos` dengan
-paketnya masing-masing (`dms` belum terpasang di mesin ini; `ambxst` sedang
-aktif lewat paket overlay-nya). Ketiganya bisa diinstal dan di-uninstall lewat
-install plan; yang tidak punya install plan hanyalah `Noctalia`, karena ia
-sudah ada di base image dan tidak perlu dipasang.
+Konsekuensi yang sudah terlihat sekarang: `Noctalia` ada di base image
+Hyprland, sedangkan `dms`, `caelestia` dan `ambxst` semuanya ada di repo
+`rakuos` dengan paketnya masing-masing (`dms` belum terpasang di mesin ini;
+`ambxst` sedang aktif lewat paket overlay-nya). Keempatnya punya install plan.
+`Noctalia` tetap punya install plan justru karena di base image Niri ia tidak
+ada, jadi ia harus bisa dipasang saat picker dipakai di Niri.
+
+Uninstall plan memakai `rum origin` untuk memilih paket mana yang boleh
+dihapus: hanya paket ber-origin **Overlay** yang dikirim ke
+`pkexec rum remove -y`. Paket **Base** adalah bagian image read-only — `rum
+remove` menolaknya, dan memaksakannya akan merusak image — jadi paket itu selalu
+dilewati dan dilaporkan sebagai "part of the base image".
 
 ## Wajib: backup sebelum switch
 
@@ -220,9 +227,10 @@ Urutan satu-satunya yang boleh dipakai:
                  dihapus — hanya yang backup switch ini gambarkan byte untuk
                  byte, sisanya disimpan dan alasannya dilaporkan
                  <- gagal di sini TIDAK membatalkan; switch sudah sukses
- 13. hapus paket: pkexec rum remove -y, hanya paket milik shell keluar, hanya
-                 kalau shell itu punya uninstall_plan
-                 <- gagal di sini juga tidak membatalkan
+ 13. hapus paket: pkexec rum remove -y, hanya paket milik shell keluar yang
+                  ber-origin Overlay (Base dilewati), hanya kalau shell itu
+                  punya uninstall_plan
+                  <- gagal di sini juga tidak membatalkan
 ```
 
 **Langkah 12 dan 13 tidak pernah menggagalkan switch, dan itu disengaja.**

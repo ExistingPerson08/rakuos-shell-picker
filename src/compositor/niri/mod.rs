@@ -1,39 +1,88 @@
-//! Niri, deliberately empty.
+//! Niri backend.
 //!
-//! Niri was registered here with three shell ports and no skel. It has been
-//! removed, and this file is what is left: the shape of the work, written down
-//! while it is still cheap to be wrong about.
+//! Detection is not the marker alone. `NIRI_SOCKET` is the variable Niri sets
+//! for everything it spawns, but a shell that copied the value out of a template
+//! unexpanded (`%NIRI_SOCKET%`) or a session that has since ended both leave the
+//! variable behind. The socket path *is* the connection, so what is checked is
+//! that the path names a real unix socket — [`crate::compositor::socket_alive`].
+//! A copied-but-unexpanded value and a stale path both fail that check, which a
+//! bare `env.var` would have accepted.
 //!
-//! **Why it was removed rather than left registered.** The three ports were real
-//! and the registry was honest about them — but every card on the page refused,
-//! because `skel/` held no files at all and a switch with nothing to install has
-//! nothing to switch to. A registered compositor promises a working page. The
-//! Niri tab showed three shells and could complete none of them, which is worse
-//! than not offering Niri at all: it looked like a bug in the picker rather than
-//! a decision about Niri.
+//! Reload and quit go through `niri msg action`, the compositor's own control
+//! channel: `reload-config` re-reads the configuration a switch replaced, and
+//! `quit` ends the session at the end of a switch. This is the same reasoning as
+//! Hyprland's `hyprctl`, and it is what lets the picker end a session it does not
+//! own — see [`crate::compositor::Compositor::exit`].
 //!
-//! **What bringing it back involves**, in the order the work actually goes:
-//!
-//! 1. `skel/`, with `config.kdl` and the theme files a Niri session needs. Until
-//!    that exists, `apply` refuses every shell on the compositor — see the
-//!    `a_compositor_with_no_skel_yet_refuses_every_shell_on_it` test, which now
-//!    covers the rule through a compositor that is registered nowhere.
-//! 2. A `Niri` struct implementing [`crate::compositor::Compositor`]: id `niri`,
-//!    label `niri`, `config_dir` `.config/niri`, and `marker_env` `NIRI_SOCKET`.
-//!    Detection needs more than the variable: a copied-but-unexpanded
-//!    `NIRI_SOCKET` looks like a live session and is not one, and the socket path
-//!    is the signal itself, so it has to be checked for being a real socket. That
-//!    check is [`crate::compositor::socket_alive`] and it is still here.
-//! 3. `shells/<shell>/mod.rs` per shell, each a `Port`. The three that were here
-//!    are in the history of this file; the answers that differ from Hyprland are
-//!    Noctalia's `StartMechanism::SpawnAtStartup` and the absence of a launcher
-//!    entry, because there is no Noctalia-on-Hyprland launcher to hide.
-//! 4. Adding it to [`crate::compositor::all`], which is the only registry the UI
-//!    walks. Nothing in the UI changes.
-//!
-//! **What was kept, and why.** The cross-compositor refusal and its tests stay in
-//! [`crate::ui::dialog`], and `StartMechanism::SpawnAtStartup` stays in
-//! [`crate::shell`]. With one compositor registered neither can be reached from
-//! the running app, but both are knowledge about how to do this correctly, and
-//! re-deriving them when the next compositor arrives would be the expensive way
-//! to learn them again.
+//! The shells Niri offers are in [`shells`], each a [`crate::shell::Port`] that
+//! states only what differs from Hyprland; everything true of the shell anywhere
+//! is in [`crate::shells`] and is not repeated there.
+
+pub mod shells;
+
+use std::path::Path;
+
+use crate::compositor::{socket_alive, Compositor, EnvSource};
+use crate::shell::Shell;
+
+pub struct Niri;
+
+impl Compositor for Niri {
+    fn id(&self) -> &'static str {
+        "niri"
+    }
+
+    fn label(&self) -> &'static str {
+        "niri"
+    }
+
+    fn shells(&self) -> &'static [Shell] {
+        shells::ALL
+    }
+
+    fn config_dir(&self) -> &'static str {
+        ".config/niri"
+    }
+
+    fn marker_env(&self) -> &'static str {
+        "NIRI_SOCKET"
+    }
+
+    fn is_running_with(&self, env: &dyn EnvSource) -> bool {
+        let Some(socket) = env.var(self.marker_env()) else {
+            return false;
+        };
+        socket_alive(Path::new(&socket))
+    }
+
+    fn reload(&self) -> Result<(), String> {
+        self.action("reload-config")
+    }
+
+    fn exit(&self) -> Result<(), String> {
+        self.action("quit")
+    }
+}
+
+impl Niri {
+    /// Ask the running compositor to do one thing over its own socket.
+    ///
+    /// Reported in the same shape Hyprland uses, so a failed reload prints the
+    /// same kind of message whichever compositor is running.
+    fn action(&self, action: &str) -> Result<(), String> {
+        let out = std::process::Command::new("niri")
+            .args(["msg", "action", action])
+            .output()
+            .map_err(|e| format!("cannot run niri msg action {action}: {e}"))?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let detail = String::from_utf8_lossy(&out.stderr);
+        let detail = detail.trim();
+        Err(if detail.is_empty() {
+            format!("niri msg action {action} exited with {}", out.status)
+        } else {
+            format!("niri msg action {action}: {detail}")
+        })
+    }
+}

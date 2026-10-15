@@ -87,9 +87,9 @@ fn each_compositor_backs_up_its_own_config_and_not_the_other_one() {
         "Hyprland list must not mention another compositor: {hypr:?}"
     );
 
-    // The second compositor is the test-only one, because Niri is no longer
-    // registered. The rule is the same either way: the list is the
-    // compositor's own, not a fixed set.
+    // The second compositor is the test-only one, so this test does not depend
+    // on which real compositors are registered. The rule is the same either
+    // way: the list is the compositor's own, not a fixed set.
     let other = crate::switch::backup_sources(
         &PathBuf::from("/home/tester"),
         &crate::compositor::fake::FAKE,

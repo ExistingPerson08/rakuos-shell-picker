@@ -159,15 +159,15 @@ compositor sekarang.
   terlihat rusak.
 - Banner juga muncul di halaman yang benar-benar kosong, di atas placeholder.
 
-Hanya ada satu halaman, jadi tabel ini yang tersisa dari perbandingan antar
-compositor. Niri pernah jadi kolom kedua dan sudah dihapus.
+Dua compositor terdaftar, jadi tiap compositor punya tab sendiri dan tabel ini
+membandingkan isinya.
 
-| Shell | hyprland | catatan |
-|---|---|---|
-| Noctalia | ya | di base image |
-| DankMaterialShell (DMS) | ya | diinstal dari repository (multi-stage) |
-| Caelestia Shell | ya | diinstal dari repository (quickshell + paket) |
-| Ambxst | ya | diinstal dari repository (quickshell + paket + companion) |
+| Shell | hyprland | niri | catatan |
+|---|---|---|---|
+| Noctalia | ya | ya | di base image Hyprland; dipasang di Niri |
+| DankMaterialShell (DMS) | ya | ya | diinstal dari repository (multi-stage) |
+| Caelestia Shell | ya | — | diinstal dari repository (quickshell + paket) |
+| Ambxst | ya | — | diinstal dari repository (quickshell + paket + companion) |
 
 Ambxst ada di repository `rakuos`, jadi ia punya paket, install plan, uninstall
 plan, dan `skel/` sendiri (lokasi config-nya `.config/ambxst`). Karena punya
@@ -180,9 +180,9 @@ clipboard, `.local/share/ambxst-notes` untuk catatan) ikut tersimpan lewat
 
 Aturan yang lebih umum: **skel boleh absen hanya di tempat shell tidak bisa
 diinstal** — diuji
-`a_skel_is_missing_only_where_the_shell_cannot_be_installed`. Niri melanggar
-aturan itu karena punya shell yang bisa diinstal tanpa skel, dan itu sebabnya ia
-dihapus bukan dibiarkan dengan skel kosong.
+`a_skel_is_missing_only_where_the_shell_cannot_be_installed`. Niri karena itu
+hanya mendaftarkan shell yang skel-nya sudah ada (DMS dan Noctalia); Caelestia
+dan Ambxst belum punya port Niri, jadi tidak didaftarkan.
 
 ## Panel log
 

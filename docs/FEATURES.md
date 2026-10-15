@@ -79,11 +79,11 @@ Inti dari proyek. `switch::prepare` (langkah 1–3) dan `apply::apply_with`
 | E8 | Stop shell lama dengan rapi (bukan `kill -9`) | selesai — SIGTERM, tunggu, batas waktu, `kill -KILL` hanya upaya terakhir |
 | E9 | Start shell baru dengan mekanisme yang benar | selesai — `StartMechanism`, dibaca lagi oleh `verify` |
 | E10 | Deteksi shell yang jalan tanpa lewat daftar kita | selesai — `process_running` lewat `/proc` |
-| E11 | Registry shell untuk compositor kedua | dibatalkan — Niri dihapus, `compositor::niri` mencatat cara menambahkannya |
+| E11 | Registry shell untuk compositor kedua | selesai — Niri terdaftar dengan port DMS + Noctalia (`src/compositor/niri/shells/`) |
 | E12 | Cek environment sebelum switch (display, Wayland) | selesai — deteksi menolak kalau tidak ada sesi Wayland, `prepare` langkah 2 menolak target yang tidak bisa jalan |
 | E13 | Guard di backend | selesai — `Refusal::Compositor` di `switch::prepare` langkah 1, arahnya sama dengan guard UI |
 | E14 | Bersih setelah switch: `.pre-*`, config dan state shell keluar | selesai — `apply::clean`, hanya yang direproduksi backup byte untuk byte |
-| E15 | Hapus paket shell yang ditinggalkan | selesai — `switch::uninstall` + `Identity::uninstall_plan`; Noctalia `None`, runtime bersama tidak pernah disentuh |
+| E15 | Hapus paket shell yang ditinggalkan | selesai — `switch::uninstall` + `Identity::uninstall_plan`; paket base image tidak pernah dikirim ke package manager, runtime bersama tidak pernah disentuh |
 
 ## G. Logging
 
@@ -124,10 +124,10 @@ Urutan pengerjaan:
    [SAFETY.md](SAFETY.md).
 5. **Switch end-to-end.** Stop → start → verifikasi → tulis state. Uji dengan
    DMS karena itu satu-satunya yang terpasang di mesin ini.
-6. **Compositor kedua.** `src/compositor/niri/mod.rs` sudah mencatat urutan
-   kerjanya: skel dulu, baru registrasi. Jangan mendaftarkan compositor yang
-   skel-nya kosong — `a_skel_is_missing_only_where_the_shell_cannot_be_installed`
-   akan gagal.
+6. **Compositor kedua.** *(selesai)* Niri terdaftar dengan skel untuk DMS dan
+   Noctalia. Urutannya tetap: skel dulu, baru registrasi. Jangan mendaftarkan
+   compositor yang skel-nya kosong —
+   `a_skel_is_missing_only_where_the_shell_cannot_be_installed` akan gagal.
 
 ## Syarat "selesai" per fitur
 

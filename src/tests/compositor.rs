@@ -59,7 +59,7 @@ fn marker_without_wayland_session_is_rejected() {
 fn every_compositor_is_reported_even_when_not_running() {
     let d = detect_with(&env(&[]));
     let ids: Vec<_> = d.statuses.iter().map(|s| s.id).collect();
-    assert_eq!(ids, ["hyprland"]);
+    assert_eq!(ids, ["hyprland", "niri"]);
     assert!(d.statuses.iter().all(|s| !s.detected));
 }
 
@@ -77,6 +77,25 @@ fn niri_needs_its_socket_to_actually_exist() {
         "/run/user/1000/niri.wayland-1.abc".into(),
     );
     assert_eq!(detect_with(&e).current, None);
+}
+
+#[test]
+fn a_real_niri_socket_names_niri() {
+    // The positive half of the test above: a value that names a real unix socket
+    // is the one thing that makes Niri the running compositor. A bound listener
+    // is used rather than a copied file because the check is specifically
+    // `is_socket`, and only a real one passes it.
+    use std::os::unix::net::UnixListener;
+
+    let socket = std::env::temp_dir().join(format!("rsp-niri-{}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&socket);
+    let _listener = UnixListener::bind(&socket).expect("bind a unix socket");
+
+    let mut e = wayland();
+    e.insert("NIRI_SOCKET".into(), socket.to_string_lossy().into_owned());
+    assert_eq!(detect_with(&e).current, Some("niri"));
+
+    let _ = std::fs::remove_file(&socket);
 }
 
 #[test]
